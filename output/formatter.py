@@ -87,6 +87,51 @@ class OutputFormatter:
             logger.error(error_msg)
             raise FormattingError(error_msg) from e
     
+    def format_chunk(
+        self,
+        chunk_data: HierarchicalData,
+        chunk_index: int,
+        sheet_name: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Format a chunk of data for streaming output.
+        
+        Args:
+            chunk_data: HierarchicalData instance for the current chunk
+            chunk_index: Index of the current chunk (0-based)
+            sheet_name: Optional sheet name
+            
+        Returns:
+            Dictionary with formatted chunk data
+            
+        Raises:
+            FormattingError: If formatting fails
+        """
+        try:
+            logger.info(f"Formatting chunk {chunk_index} for sheet: {sheet_name or 'default'}")
+            
+            # Create the chunk structure
+            result = {
+                "chunk_index": chunk_index,
+                "data": chunk_data.to_list(include_metadata=self.include_structure_metadata)
+            }
+            
+            # Add columns to the first chunk
+            if chunk_index == 0 and chunk_data.columns:
+                result["columns"] = chunk_data.columns
+            
+            # Add sheet name if provided
+            if sheet_name:
+                result["sheet_name"] = sheet_name
+            
+            logger.info(f"Formatted chunk {chunk_index} with {len(result['data'])} data records")
+            
+            return result
+        except Exception as e:
+            error_msg = f"Failed to format chunk: {str(e)}"
+            logger.error(error_msg)
+            raise FormattingError(error_msg) from e
+    
     def format_multi_sheet_output(
         self,
         sheets_data: Dict[str, Dict[str, Any]]
@@ -129,6 +174,92 @@ class OutputFormatter:
             logger.error(error_msg)
             raise FormattingError(error_msg) from e
     
+    def format_streaming_sheet_metadata(
+        self,
+        metadata: Metadata,
+        sheet_name: Optional[str] = None,
+        total_rows_estimated: int = 0
+    ) -> Dict[str, Any]:
+        """
+        Format metadata for a streaming sheet output.
+        This creates the initial structure for a streaming output file.
+        
+        Args:
+            metadata: Metadata instance
+            sheet_name: Optional sheet name
+            total_rows_estimated: Estimated number of rows (for progress tracking)
+            
+        Returns:
+            Dictionary with formatted metadata
+            
+        Raises:
+            FormattingError: If formatting fails
+        """
+        try:
+            logger.info(f"Formatting streaming metadata for sheet: {sheet_name or 'default'}")
+            
+            # Create the output structure
+            result = {
+                "metadata": metadata.to_dict(),
+                "streaming": True,
+                "estimated_total_rows": total_rows_estimated,
+                "chunks_appended": 0,
+                "data": []  # Empty array to be filled by subsequent chunks
+            }
+            
+            # Add sheet name if provided
+            if sheet_name:
+                result["sheet_name"] = sheet_name
+            
+            logger.info(f"Formatted streaming metadata with {len(result['metadata'])} sections")
+            
+            return result
+        except Exception as e:
+            error_msg = f"Failed to format streaming metadata: {str(e)}"
+            logger.error(error_msg)
+            raise FormattingError(error_msg) from e
+    
+    def format_streaming_completion(
+        self,
+        total_chunks: int,
+        total_records: int,
+        sheet_name: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Format completion info for a streaming output.
+        
+        Args:
+            total_chunks: Total number of chunks processed
+            total_records: Total number of records processed
+            sheet_name: Optional sheet name
+            
+        Returns:
+            Dictionary with completion information
+            
+        Raises:
+            FormattingError: If formatting fails
+        """
+        try:
+            logger.info(f"Formatting streaming completion for sheet: {sheet_name or 'default'}")
+            
+            # Create the completion info
+            result = {
+                "streaming_complete": True,
+                "total_chunks": total_chunks,
+                "total_records": total_records
+            }
+            
+            if sheet_name:
+                result["sheet_name"] = sheet_name
+            
+            logger.info(f"Formatted streaming completion info: {total_records} records in {total_chunks} chunks")
+            
+            return result
+        except Exception as e:
+            error_msg = f"Failed to format streaming completion: {str(e)}"
+            logger.error(error_msg)
+            raise FormattingError(error_msg) from e
+            
     def format_batch_summary(
         self,
         batch_results: Dict[str, Dict[str, Any]]

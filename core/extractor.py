@@ -5,6 +5,8 @@ Extracts hierarchical data while respecting merged cells and structure.
 
 from typing import Any, Dict, List, Optional, Set, Tuple, Union, Generator
 
+import os
+import psutil
 import openpyxl
 import pandas as pd
 from openpyxl.worksheet.worksheet import Worksheet
@@ -15,7 +17,7 @@ from models.hierarchical_data import (HierarchicalData,
                                                     HierarchicalDataItem,
                                                     HierarchicalRecord,
                                                     MergeInfo)
-from utils.exceptions import DataExtractionError, HierarchicalDataError
+from utils.exceptions import DataExtractionError, HierarchicalDataError, MemoryError
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -109,6 +111,128 @@ class DataExtractor:
             return data
         except Exception as e:
             error_msg = f"Failed to extract hierarchical data: {str(e)}"
+            logger.error(error_msg)
+            raise DataExtractionError(error_msg) from e
+    
+    def extract_data_streaming(
+        self,
+        sheet: Worksheet,
+        merge_map: Dict[Tuple[int, int], Dict],
+        data_start_row: int,
+        chunk_size: int = 1000,
+        include_empty: bool = False,
+        memory_threshold: float = 0.8
+    ) -> Generator[Tuple[HierarchicalData, bool], None, None]:
+        """
+        Extract hierarchical data from an Excel sheet in a streaming fashion.
+        Yields chunks of data rather than returning a complete dataset.
+        
+        Args:
+            sheet: Worksheet to extract data from
+            merge_map: Dictionary mapping (row, col) to merge information
+            data_start_row: Row number where data starts (including header)
+            chunk_size: Number of rows to process at once
+            include_empty: Whether to include empty cells
+            memory_threshold: Memory usage threshold (0.0-1.0) for dynamic chunk size adjustment
+            
+        Yields:
+            Tuple containing:
+              - HierarchicalData with the current chunk's data
+              - Boolean indicating if this is the final chunk
+              
+        Raises:
+            DataExtractionError: If data extraction fails
+            MemoryError: If memory usage exceeds safe limits
+        """
+        try:
+            logger.info(
+                f"Streaming extraction of hierarchical data from sheet: {sheet.title} "
+                f"starting at row {data_start_row} with initial chunk size {chunk_size}"
+            )
+            
+            # Get dimensions needed for header extraction
+            _, _, min_col, max_col = sheet.get_dimensions()
+            
+            # Get header map directly (same as non-streaming version)
+            header_map = {}
+            for col_idx in range(min_col, max_col + 1):
+                header_value = sheet.get_cell_value(data_start_row, col_idx)
+                if header_value is not None:
+                     header_map[col_idx] = str(header_value)
+            
+            # Directly fetch header names from the cells in the header row
+            headers = self._get_header_values_directly(sheet, data_start_row, header_map)
+            logger.debug(f"Created headers list from direct fetch for streaming: {headers}")
+            
+            # Determine total rows to process
+            _, max_row, _, _ = sheet.get_dimensions()
+            data_end_row = max_row
+            total_rows_to_process = max(0, data_end_row - data_start_row)
+            
+            logger.info(f"Streaming process for {total_rows_to_process} data rows (from {data_start_row + 1} to {data_end_row})")
+            
+            # Monitor memory usage to adjust chunk size
+            process = psutil.Process(os.getpid())
+            adaptive_chunk_size = chunk_size
+            
+            processed_rows_count = 0
+            total_rows_yielded = 0
+            
+            # Iterate through data rows in chunks with adaptive chunk size
+            for row_chunk in self._iterate_rows_chunked(sheet, data_start_row + 1, data_end_row, adaptive_chunk_size):
+                # Create a new HierarchicalData instance for this chunk
+                chunk_data = HierarchicalData(columns=headers)
+                rows_in_current_chunk = 0
+                
+                # Process each row in the chunk
+                for excel_row_idx, row_data in row_chunk.items():
+                    # Process row and add to the chunk data
+                    try:
+                        record = self._process_row(
+                            sheet, row_data, excel_row_idx, header_map, merge_map, include_empty
+                        )
+                        chunk_data.add_record(record)
+                        processed_rows_count += 1
+                        rows_in_current_chunk += 1
+                    except Exception as e:
+                        logger.error(f"Error processing row {excel_row_idx}: {str(e)}")
+                        # Continue processing other rows despite errors in individual rows
+                        continue
+                
+                total_rows_yielded += rows_in_current_chunk
+                is_final_chunk = (total_rows_yielded >= total_rows_to_process)
+                
+                # Check memory usage and adjust chunk size for next iteration
+                mem_percent = process.memory_percent()
+                if mem_percent > memory_threshold:
+                    # Reduce chunk size to avoid memory issues
+                    adaptive_chunk_size = max(100, int(adaptive_chunk_size * 0.7))
+                    logger.warning(
+                        f"Memory usage high ({mem_percent:.1f}%), reducing chunk size to {adaptive_chunk_size}"
+                    )
+                elif mem_percent < (memory_threshold * 0.5) and adaptive_chunk_size < chunk_size:
+                    # Increase chunk size if memory usage is low
+                    adaptive_chunk_size = min(chunk_size, int(adaptive_chunk_size * 1.3))
+                    logger.info(
+                        f"Memory usage low ({mem_percent:.1f}%), increasing chunk size to {adaptive_chunk_size}"
+                    )
+                
+                # Yield the chunk data and whether this is the final chunk
+                logger.info(
+                    f"Yielding chunk with {rows_in_current_chunk} records "
+                    f"({total_rows_yielded}/{total_rows_to_process} processed)"
+                )
+                yield chunk_data, is_final_chunk
+                
+                # Force garbage collection to free memory between chunks
+                # Also gives opportunity for checkpointing
+                import gc
+                gc.collect()
+            
+            logger.info(f"Completed streaming extraction with {processed_rows_count} processed rows.")
+        
+        except Exception as e:
+            error_msg = f"Failed during streaming extraction: {str(e)}"
             logger.error(error_msg)
             raise DataExtractionError(error_msg) from e
     

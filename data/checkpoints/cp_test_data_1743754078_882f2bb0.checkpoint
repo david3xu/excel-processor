@@ -1,0 +1,16 @@
+{
+  "checkpoint_id": "cp_test_data_1743754078_882f2bb0",
+  "timestamp": "2025-04-04T16:07:58.574949",
+  "file_path": "data/input/test_data.xlsx",
+  "state": {
+    "current_sheet": "Equipment Failure Events",
+    "current_chunk": 1,
+    "rows_processed": 6,
+    "total_chunks_estimated": 1,
+    "output_file": "data/output/streaming_test.json",
+    "sheet_status": {
+      "Equipment Failure Events": true
+    },
+    "temp_files": {}
+  }
+}

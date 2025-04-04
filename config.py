@@ -47,6 +47,19 @@ class ExcelProcessorConfig:
     parallel_processing: bool = True
     max_workers: int = 4
     
+    # Streaming processing settings
+    streaming_mode: bool = False  # Whether to use streaming mode for large files
+    streaming_threshold_mb: int = 100  # File size threshold to auto-enable streaming
+    streaming_chunk_size: int = 1000  # Chunk size for streaming mode
+    streaming_temp_dir: str = "data/temp"  # Directory for temporary streaming files
+    memory_threshold: float = 0.8  # Memory usage threshold (0.0-1.0) for dynamic chunk adjustment
+    
+    # Checkpointing settings
+    use_checkpoints: bool = False  # Whether to use checkpoints
+    checkpoint_dir: str = "data/checkpoints"  # Directory for checkpoint files
+    checkpoint_interval: int = 5  # Create a checkpoint after processing every N chunks
+    resume_from_checkpoint: Optional[str] = None  # Checkpoint ID to resume from
+    
     # Logging settings
     log_level: str = "info"
     log_file: str = "data/logs/excel_processing.log"
@@ -144,6 +157,42 @@ class ExcelProcessorConfig:
                 param_name="log_level",
                 param_value=self.log_level,
             )
+        
+        # Validate streaming settings
+        if self.streaming_mode:
+            if self.streaming_chunk_size < 100:
+                raise ConfigurationError(
+                    "streaming_chunk_size must be at least 100",
+                    param_name="streaming_chunk_size",
+                    param_value=self.streaming_chunk_size,
+                )
+                
+            if self.streaming_threshold_mb < 10:
+                raise ConfigurationError(
+                    "streaming_threshold_mb must be at least 10",
+                    param_name="streaming_threshold_mb",
+                    param_value=self.streaming_threshold_mb,
+                )
+                
+            if not (0.1 <= self.memory_threshold <= 0.95):
+                raise ConfigurationError(
+                    "memory_threshold must be between 0.1 and 0.95",
+                    param_name="memory_threshold",
+                    param_value=self.memory_threshold,
+                )
+            
+        # Validate checkpointing settings
+        if self.use_checkpoints:
+            if self.checkpoint_interval < 1:
+                raise ConfigurationError(
+                    "checkpoint_interval must be at least 1",
+                    param_name="checkpoint_interval",
+                    param_value=self.checkpoint_interval,
+                )
+            
+            # Ensure streaming mode is enabled when using checkpoints
+            if not self.streaming_mode:
+                self.streaming_mode = True
             
     def to_dict(self) -> Dict[str, Any]:
         """Convert configuration to dictionary."""
@@ -240,6 +289,15 @@ class ExcelProcessorConfig:
                 config_dict[field_name] = field_value.lower() in ("true", "yes", "1", "on")
             elif field_type in (List[str], list):
                 config_dict[field_name] = field_value.split(",")
+            elif field_type in (float, Optional[float]):
+                try:
+                    config_dict[field_name] = float(field_value)
+                except ValueError:
+                    raise ConfigurationError(
+                        f"Invalid float value for {field_name}: {field_value}",
+                        param_name=field_name,
+                        param_value=field_value,
+                    )
             else:
                 # Default to string
                 config_dict[field_name] = field_value

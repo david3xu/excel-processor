@@ -9,6 +9,8 @@ A comprehensive tool for processing Excel files with complex structures to JSON,
 - Smart structure analysis to identify headers and data sections
 - Processes single files, multiple sheets, or batch processing
 - Memory-efficient processing with chunking for large files
+- Streaming processing for extremely large files with minimal memory usage
+- Checkpointing support to resume interrupted processing
 - Caching to avoid redundant processing of unchanged files
 - Multiple Excel access strategies for different file types and sizes
 - Automatic fallback mechanisms for handling problematic files
@@ -17,7 +19,92 @@ A comprehensive tool for processing Excel files with complex structures to JSON,
 
 ```bash
 pip install excel-processor
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 ```
+
+## Quick Start - Streaming
+
+For processing large Excel files with minimal memory usage, use the streaming mode:
+
+1. **Setup your environment**
+
+```bash
+# Clone the repository
+git clone https://github.com/your-username/excel-processor.git
+cd excel-processor
+
+# Create and activate a virtual environment (optional but recommended)
+python -m venv .venv
+source .venv/bin/activate  # Linux/Mac
+# OR
+.venv\Scripts\activate  # Windows
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+2. **Basic streaming processing**
+
+```bash
+# Process a large Excel file with streaming mode
+python cli.py single -i data/input/large_file.xlsx -o data/output/result.json --streaming
+```
+
+3. **Add checkpointing for resumable processing**
+
+```bash
+# Enable checkpointing to resume if processing is interrupted
+python cli.py single -i data/input/large_file.xlsx -o data/output/result.json --streaming --use-checkpoints
+```
+
+4. **Resume from a previous checkpoint**
+
+```bash
+# List available checkpoints
+python cli.py --list-checkpoints
+
+# Resume processing using a checkpoint ID from the list
+python cli.py single -i data/input/large_file.xlsx -o data/output/result.json --streaming --resume cp_large_file_1234567890_abcd1234
+```
+
+5. **Customize streaming behavior**
+
+```bash
+# Adjust memory usage and chunk size
+python cli.py single -i data/input/large_file.xlsx -o data/output/result.json --streaming \
+  --streaming-chunk-size 2000 --memory-threshold 0.7
+```
+
+6. **Multi-sheet streaming processing**
+
+```bash
+# Process multiple sheets from one large file with streaming
+python cli.py multi -i data/input/large_file.xlsx -o data/output/result.json --streaming --use-checkpoints
+
+python cli.py multi -i data/input/knowledge_graph_test_data.xlsx -o data/output/knowledge_graph_test_data.json --streaming --use-checkpoints
+
+# Process specific sheets with streaming
+python cli.py multi -i data/input/large_file.xlsx -o data/output/result.json --streaming \
+  -s "Sheet1" "Sheet3" --use-checkpoints
+```
+
+7. **Batch streaming processing**
+
+```bash
+# Process all Excel files in a directory with streaming
+python cli.py batch -i data/input -o data/output --streaming --use-checkpoints
+
+# Batch processing with streaming and parallel execution
+python cli.py batch -i data/input -o data/output --streaming --parallel --workers 4 --use-checkpoints
+```
+
+Key streaming options:
+- `--streaming-chunk-size`: Number of rows to process in each chunk (default: 1000)
+- `--memory-threshold`: Memory usage threshold (0.0-1.0) for dynamic chunk sizing (default: 0.8)
+- `--checkpoint-interval`: Create checkpoint after every N chunks (default: 5)
+- `--checkpoint-dir`: Directory to store checkpoint files (default: data/checkpoints)
 
 ## Directory Structure
 
@@ -65,6 +152,18 @@ python cli.py single -i data/input/input.xlsx -o data/output/output_single.json
 
 # Specify a sheet:
 python cli.py single -i data/input/input.xlsx -o data/output/output_sheet2.json -s "Sheet2"
+
+# --- Process with streaming mode for large files ---
+python cli.py single -i data/input/large_file.xlsx -o data/output/large_file.json --streaming
+
+# --- Enable checkpointing for resumable processing ---
+python cli.py single -i data/input/large_file.xlsx -o data/output/large_file.json --streaming --use-checkpoints
+
+# --- Resume processing from a checkpoint ---
+python cli.py single -i data/input/large_file.xlsx -o data/output/large_file.json --streaming --resume checkpoint_id
+
+# --- List available checkpoints ---
+python cli.py --list-checkpoints
 
 # --- Process multiple sheets from one file into a single JSON --- 
 # Using installed command:
@@ -119,6 +218,9 @@ result = process_single_file('input.xlsx', 'output.json', config)
 - `cache_dir`: Directory for cache storage (default: data/cache)
 - `input_dir`: Default input directory (default: data/input)
 - `output_dir`: Default output directory (default: data/output/batch)
+- `checkpoint_dir`: Directory for checkpoint files (default: data/checkpoints)
+- `streaming_chunk_size`: Rows to process per chunk in streaming mode (default: 1000)
+- `memory_threshold_mb`: Memory threshold for optimization (default: 1024)
 
 ### Data Access Options
 - `data_access.preferred_strategy`: Preferred strategy for Excel access ("openpyxl", "pandas", "auto")
@@ -134,6 +236,38 @@ The processor supports multiple strategies for accessing Excel files:
 - **FallbackStrategy**: Resilient strategy for handling problematic files
 
 The system automatically selects the optimal strategy based on file characteristics, or you can specify a preferred strategy in the configuration.
+
+## Streaming and Checkpointing
+
+### Memory-Efficient Streaming
+
+For very large Excel files, the streaming mode processes data in chunks without loading the entire file into memory:
+
+```bash
+# Process a large file with streaming mode
+python cli.py single -i data/input/large_file.xlsx -o data/output/large_file.json --streaming
+```
+
+Streaming mode options:
+- `--streaming-chunk-size`: Control the number of rows processed in each chunk
+- `--memory-threshold-mb`: Set the memory threshold for optimization
+
+### Checkpointing and Resume
+
+The processor supports saving checkpoints during processing and resuming from the last successful checkpoint:
+
+```bash
+# Enable checkpointing during processing
+python cli.py single -i data/input/large_file.xlsx -o data/output/large_file.json --streaming --use-checkpoints
+
+# Resume processing from a checkpoint
+python cli.py single -i data/input/large_file.xlsx -o data/output/large_file.json --streaming --resume checkpoint_id
+
+# List available checkpoints
+python cli.py --list-checkpoints --checkpoint-dir data/checkpoints
+```
+
+Checkpoint files contain processing state information and are stored in the configured checkpoint directory.
 
 ## Architectural Improvements
 

@@ -24,6 +24,20 @@ def parse_args() -> argparse.Namespace:
         description="Excel to JSON converter with merged cell and metadata detection"
     )
     
+    # Add global list-checkpoints option
+    parser.add_argument(
+        "--list-checkpoints", action="store_true",
+        help="List available checkpoints and exit"
+    )
+    parser.add_argument(
+        "--checkpoint-dir", default="data/checkpoints",
+        help="Directory to store checkpoint files (default: data/checkpoints)"
+    )
+    parser.add_argument(
+        "--log-level", choices=["debug", "info", "warning", "error", "critical"],
+        default="info", help="Log level"
+    )
+    
     # Create subparsers for commands
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
     
@@ -76,15 +90,50 @@ def parse_args() -> argparse.Namespace:
         help="Number of parallel workers (default: 4)"
     )
     
-    # Common options
+    # Add streaming options to all command subparsers
     for subparser in [single_parser, multi_parser, batch_parser]:
+        # Streaming options
+        streaming_group = subparser.add_argument_group("Streaming Options")
+        streaming_group.add_argument(
+            "--streaming", action="store_true",
+            help="Enable streaming mode for large files"
+        )
+        streaming_group.add_argument(
+            "--streaming-threshold", type=int, default=100,
+            help="File size threshold (MB) to auto-enable streaming (default: 100)"
+        )
+        streaming_group.add_argument(
+            "--streaming-chunk-size", type=int, default=1000,
+            help="Number of rows to process in each streaming chunk (default: 1000)"
+        )
+        streaming_group.add_argument(
+            "--streaming-temp-dir", default="data/temp",
+            help="Directory for temporary streaming files (default: data/temp)"
+        )
+        streaming_group.add_argument(
+            "--memory-threshold", type=float, default=0.8,
+            help="Memory usage threshold (0.0-1.0) for adaptive chunk sizing (default: 0.8)"
+        )
+        
+        # Checkpointing options
+        checkpoint_group = subparser.add_argument_group("Checkpointing Options")
+        checkpoint_group.add_argument(
+            "--use-checkpoints", action="store_true",
+            help="Enable creation of processing checkpoints for resumable operation"
+        )
+        checkpoint_group.add_argument(
+            "--checkpoint-interval", type=int, default=5,
+            help="Create checkpoint after every N chunks (default: 5)"
+        )
+        checkpoint_group.add_argument(
+            "--resume", 
+            help="Resume processing from a checkpoint ID"
+        )
+        
+        # Common options
         subparser.add_argument(
             "--config", 
             help="Configuration file (JSON)"
-        )
-        subparser.add_argument(
-            "--log-level", choices=["debug", "info", "warning", "error", "critical"],
-            default="info", help="Log level"
         )
         subparser.add_argument(
             "--log-file",
@@ -144,6 +193,33 @@ def args_to_config(args: argparse.Namespace) -> ExcelProcessorConfig:
         config.input_file = None
         config.output_file = None
     
+    # Update streaming options if provided
+    if hasattr(args, 'streaming') and args.streaming:
+        config.streaming_mode = True
+    if hasattr(args, 'streaming_threshold'):
+        config.streaming_threshold_mb = args.streaming_threshold
+    if hasattr(args, 'streaming_chunk_size'):
+        config.streaming_chunk_size = args.streaming_chunk_size
+    if hasattr(args, 'streaming_temp_dir'):
+        config.streaming_temp_dir = args.streaming_temp_dir
+    if hasattr(args, 'memory_threshold'):
+        config.memory_threshold = args.memory_threshold
+    
+    # Update checkpointing options if provided
+    if hasattr(args, 'use_checkpoints') and args.use_checkpoints:
+        config.use_checkpoints = True
+        # Streaming mode is required for checkpointing
+        config.streaming_mode = True
+    if hasattr(args, 'checkpoint_dir'):
+        config.checkpoint_dir = args.checkpoint_dir
+    if hasattr(args, 'checkpoint_interval'):
+        config.checkpoint_interval = args.checkpoint_interval
+    if hasattr(args, 'resume') and args.resume:
+        config.resume_from_checkpoint = args.resume
+        # Enable both streaming and checkpointing when resuming
+        config.streaming_mode = True
+        config.use_checkpoints = True
+    
     # Update log settings
     config.log_level = args.log_level
     if args.log_file:
@@ -166,6 +242,40 @@ def run_cli() -> int:
         # Parse command-line arguments
         args = parse_args()
         
+        # Configure logging early for all commands
+        log_level = getattr(args, 'log_level', 'info')
+        log_file = getattr(args, 'log_file', None)
+        configure_logging(level=log_level, log_file=log_file, console=True)
+        
+        # Handle global list-checkpoints command
+        if args.list_checkpoints:
+            # Use specified checkpoint directory if provided
+            checkpoint_dir = getattr(args, 'checkpoint_dir', 'data/checkpoints')
+            
+            # Create checkpoint manager with specified directory
+            from utils.checkpointing import CheckpointManager
+            cm = CheckpointManager(checkpoint_dir)
+            
+            # Get all checkpoints
+            checkpoints = cm.list_checkpoints(None)
+            
+            if not checkpoints:
+                print("No checkpoints found.")
+                return 0
+            
+            # Display checkpoint information
+            print(f"Found {len(checkpoints)} checkpoint(s):")
+            print("-" * 80)
+            for i, cp in enumerate(checkpoints):
+                print(f"{i+1}. ID: {cp.get('id')}")
+                print(f"   File: {cp.get('file')}")
+                print(f"   Date: {cp.get('timestamp')}")
+                print(f"   Sheet: {cp.get('sheet')}")
+                print(f"   Progress: Chunk {cp.get('chunk')}, {cp.get('rows_processed')} rows processed")
+                print("-" * 80)
+            
+            return 0
+        
         # Check if command is provided
         if not args.command:
             print("Error: Command is required")
@@ -174,13 +284,6 @@ def run_cli() -> int:
         
         # Convert arguments to configuration
         config = args_to_config(args)
-        
-        # Configure logging
-        configure_logging(
-            level=config.log_level,
-            log_file=config.log_file,
-            console=True
-        )
         
         # Import here to avoid circular imports
         from main import main as run_main
@@ -199,6 +302,8 @@ def run_cli() -> int:
         return 1
     except Exception as e:
         print(f"Unexpected error: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return 1
 
 

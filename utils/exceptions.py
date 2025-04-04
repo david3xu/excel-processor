@@ -255,6 +255,90 @@ class CachingError(ExcelProcessorError):
 
 
 class CacheInvalidationError(CachingError):
-    """Exception raised during cache invalidation."""
+    """Exception raised when cache invalidation fails."""
+
+    pass
+
+
+# Resource Exceptions
+class ResourceError(ExcelProcessorError):
+    """Exception raised for resource-related errors."""
+
+    def __init__(
+        self,
+        message: str,
+        resource_type: Optional[str] = None,
+        usage: Optional[float] = None,
+        threshold: Optional[float] = None,
+        **kwargs: Any,
+    ):
+        details = kwargs.get("details", {})
+        if resource_type is not None:
+            details["resource_type"] = resource_type
+        if usage is not None:
+            details["usage"] = f"{usage:.2f}%"
+        if threshold is not None:
+            details["threshold"] = f"{threshold:.2f}%"
+        super().__init__(message, source="resource", details=details)
+
+
+class MemoryError(ResourceError):
+    """Exception raised when memory usage exceeds safe limits."""
+
+    def __init__(
+        self,
+        message: str,
+        usage: Optional[float] = None,
+        threshold: Optional[float] = None,
+        **kwargs: Any,
+    ):
+        super().__init__(
+            message,
+            resource_type="memory",
+            usage=usage,
+            threshold=threshold,
+            **kwargs
+        )
+
+
+# Checkpointing Exceptions
+class CheckpointError(ExcelProcessorError):
+    """Exception raised for checkpointing errors."""
+
+    def __init__(
+        self,
+        message: str,
+        checkpoint_id: Optional[str] = None,
+        checkpoint_file: Optional[str] = None,
+        **kwargs: Any,
+    ):
+        details = kwargs.get("details", {})
+        if checkpoint_id is not None:
+            details["checkpoint_id"] = checkpoint_id
+        if checkpoint_file is not None:
+            details["checkpoint_file"] = checkpoint_file
+        super().__init__(message, source="checkpoint", details=details)
+
+
+class CheckpointCreationError(CheckpointError):
+    """Exception raised when creating a checkpoint fails."""
+
+    pass
+
+
+class CheckpointReadError(CheckpointError):
+    """Exception raised when reading a checkpoint fails."""
+
+    pass
+
+
+class CheckpointWriteError(CheckpointError):
+    """Exception raised when writing a checkpoint fails."""
+
+    pass
+
+
+class CheckpointResumptionError(CheckpointError):
+    """Exception raised when resuming from a checkpoint fails."""
 
     pass
