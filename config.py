@@ -22,8 +22,8 @@ class ExcelProcessorConfig:
     # Input/Output settings
     input_file: Optional[str] = None
     output_file: Optional[str] = None
-    input_dir: Optional[str] = None
-    output_dir: Optional[str] = None
+    input_dir: Optional[str] = "data/input"  # Default input directory
+    output_dir: Optional[str] = "data/output/batch"  # Default output directory
     
     # Sheet settings
     sheet_name: Optional[str] = None
@@ -37,7 +37,7 @@ class ExcelProcessorConfig:
     
     # Batch processing settings
     use_cache: bool = True
-    cache_dir: str = ".cache"
+    cache_dir: str = "data/cache"  # Updated cache directory
     parallel_processing: bool = True
     max_workers: int = 4
     

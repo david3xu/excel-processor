@@ -17,6 +17,26 @@ A comprehensive tool for processing Excel files with complex structures to JSON,
 pip install excel-processor
 ```
 
+## Directory Structure
+
+The project follows a well-organized directory structure:
+
+```
+excel-processor/
+├── core/                    # Core processing modules
+├── data/                    # Data directories
+│   ├── input/               # Input Excel files
+│   ├── output/              # Processed output files
+│   └── cache/               # Cache for file processing
+├── models/                  # Data models
+├── output/                  # Output formatting modules
+├── tests/                   # Test suite
+│   ├── fixtures/            # Test data files
+│   └── generators/          # Test data generators
+├── utils/                   # Utility modules
+└── workflows/               # Processing workflows
+```
+
 ## Usage
 
 ### Command Line Interface
@@ -55,6 +75,9 @@ result = process_single_file('input.xlsx', 'output.json', config)
 - `header_detection_threshold`: Minimum values to consider a header row (default: 3)
 - `include_empty_cells`: Whether to include null values (default: False)
 - `chunk_size`: Number of rows to process at once (default: 1000)
+- `cache_dir`: Directory for cache storage (default: data/cache)
+- `input_dir`: Default input directory (default: data/input)
+- `output_dir`: Default output directory (default: data/output/batch)
 
 ## License
 

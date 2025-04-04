@@ -284,9 +284,31 @@ The processor supports numerous configuration options:
 | include_empty_cells      | Whether to include null values              | False   |
 | chunk_size               | Number of rows to process at once           | 1000    |
 | use_cache                | Enable caching for unchanged files          | True    |
-| cache_dir                | Directory for cache storage                 | .cache  |
+| cache_dir                | Directory for cache storage                 | data/cache |
+| input_dir                | Default input directory                     | data/input |
+| output_dir               | Default output directory                    | data/output/batch |
 | parallel_processing      | Enable parallel processing for batch mode   | True    |
 | max_workers              | Maximum number of parallel workers          | 4       |
+
+## Directory Structure
+
+The project follows a well-organized directory structure:
+
+```
+excel-processor/
+├── core/                    # Core processing modules
+├── data/                    # Data directories
+│   ├── input/               # Input Excel files
+│   ├── output/              # Processed output files
+│   └── cache/               # Cache for file processing
+├── models/                  # Data models
+├── output/                  # Output formatting modules
+├── tests/                   # Test suite
+│   ├── fixtures/            # Test data files
+│   └── generators/          # Test data generators
+├── utils/                   # Utility modules
+└── workflows/               # Processing workflows
+```
 
 ## Conclusion
 

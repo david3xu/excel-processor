@@ -22,7 +22,7 @@ class FileCache:
     Uses file hashing to detect changes and avoid redundant processing.
     """
     
-    def __init__(self, cache_dir: str = ".cache", max_age_days: Optional[float] = None):
+    def __init__(self, cache_dir: str = "data/cache", max_age_days: Optional[float] = None):
         """
         Initialize the file cache.
         

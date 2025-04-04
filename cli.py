@@ -64,7 +64,7 @@ def parse_args() -> argparse.Namespace:
         help="Use caching for unchanged files"
     )
     batch_parser.add_argument(
-        "--cache-dir", default=".cache", 
+        "--cache-dir", default="data/cache", 
         help="Cache directory"
     )
     batch_parser.add_argument(

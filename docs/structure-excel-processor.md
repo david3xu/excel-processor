@@ -8,6 +8,12 @@ excel_processor/
 │   ├── reader.py
 │   ├── structure.py
 │   ├── extractor.py
+├── data/
+│   ├── input/
+│   │   └── samples/
+│   ├── output/
+│   │   └── batch/
+│   └── cache/
 ├── models/
 │   ├── __init__.py
 │   ├── excel_structure.py
@@ -23,6 +29,13 @@ excel_processor/
 │   ├── __init__.py
 │   ├── formatter.py
 │   ├── writer.py
+├── tests/
+│   ├── fixtures/
+│   │   └── excel/
+│   ├── generators/
+│   ├── unit/
+│   ├── integration/
+│   └── end_to_end/
 ├── utils/
 │   ├── __init__.py
 │   ├── caching.py
