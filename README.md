@@ -83,8 +83,6 @@ python cli.py single -i data/input/large_file.xlsx -o data/output/result.json --
 # Process multiple sheets from one large file with streaming
 python cli.py multi -i data/input/large_file.xlsx -o data/output/result.json --streaming --use-checkpoints
 
-python cli.py multi -i data/input/knowledge_graph_test_data.xlsx -o data/output/knowledge_graph_test_data.json --streaming --use-checkpoints
-
 # Process specific sheets with streaming
 python cli.py multi -i data/input/large_file.xlsx -o data/output/result.json --streaming \
   -s "Sheet1" "Sheet3" --use-checkpoints
@@ -105,6 +103,53 @@ Key streaming options:
 - `--memory-threshold`: Memory usage threshold (0.0-1.0) for dynamic chunk sizing (default: 0.8)
 - `--checkpoint-interval`: Create checkpoint after every N chunks (default: 5)
 - `--checkpoint-dir`: Directory to store checkpoint files (default: data/checkpoints)
+
+## Magic Commands
+
+These are tested, working commands for effective use of streaming and checkpointing features:
+
+### Single File Processing
+
+```bash
+# Process with streaming and create checkpoints
+source .venv/bin/activate
+python cli.py single -i data/input/test_data.xlsx -o data/output/stream_test.json --streaming --use-checkpoints
+
+# Resume from a specific checkpoint
+python cli.py single -i data/input/test_data.xlsx -o data/output/resume_test.json --streaming --resume cp_test_data_1743754251_aeeb851c
+```
+
+### Multi-Sheet Processing
+
+```bash
+# Process all sheets with streaming and checkpoints
+source .venv/bin/activate
+python cli.py multi -i data/input/test_data.xlsx -o data/output/multi_test.json --streaming --use-checkpoints
+
+# Resume multi-sheet processing from checkpoint
+python cli.py multi -i data/input/test_data.xlsx -o data/output/multi_resume_test.json --streaming --resume cp_test_data_1743755641_a5ce9744
+```
+
+### Batch Processing
+
+```bash
+# Process all Excel files in a directory
+source .venv/bin/activate
+python cli.py batch -i data/input -o data/output/batch_test --streaming --use-checkpoints
+
+# Resume batch processing from checkpoint
+python cli.py batch -i data/input -o data/output/batch_resume_test --streaming --resume batch_input_1743755556_31f364f9
+```
+
+### Helpful Commands
+
+```bash
+# List all available checkpoints
+python cli.py --list-checkpoints
+
+# Enable debug logging for troubleshooting
+python cli.py --log-level debug multi -i data/input/test_data.xlsx -o data/output/debug_test.json --streaming
+```
 
 ## Directory Structure
 

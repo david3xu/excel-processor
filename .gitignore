@@ -35,12 +35,17 @@ ENV/
 data/input/*.xlsx
 data/output/*.json
 data/cache/*
+data/checkpoints/*
+data/temp/*
 !data/input/.gitkeep
 !data/output/.gitkeep
 !data/cache/.gitkeep
+!data/checkpoints/.gitkeep
+!data/temp/.gitkeep
 /output/*.json
 /data/logs/
 temp_config.json
+*.checkpoint
 
 # Pytest
 .pytest_cache/

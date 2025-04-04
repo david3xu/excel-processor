@@ -1,0 +1,146 @@
+{
+  "sheets": {
+    "Equipment Failure Events": {
+      "metadata": {
+        "headers": {
+          "header_r1": "Equipment Class"
+        },
+        "row_1": {
+          "A": "Event Category"
+        }
+      },
+      "streaming": true,
+      "estimated_total_rows": 0,
+      "chunks_appended": 1,
+      "data": [
+        {
+          "Bearing Failure": "Seal Leakage",
+          "Critical": "Medium",
+          "2024-03-15 00:00:00": "2024-02-20T00:00:00"
+        },
+        {
+          "Pump System": "Conveyor System",
+          "Bearing Failure": "Belt Misalignment",
+          "Critical": "Low",
+          "2024-03-15 00:00:00": "2024-03-03T00:00:00"
+        },
+        {
+          "Bearing Failure": "Drive Failure",
+          "Critical": "High",
+          "2024-03-15 00:00:00": "2024-01-25T00:00:00"
+        },
+        {
+          "MECHANICAL": "ELECTRICAL",
+          "Pump System": "Motor Control",
+          "Bearing Failure": "Overload Trip",
+          "Critical": "Medium",
+          "2024-03-15 00:00:00": "2024-03-10T00:00:00"
+        },
+        {
+          "Bearing Failure": "Phase Imbalance",
+          "Critical": "Medium",
+          "2024-03-15 00:00:00": "2024-02-12T00:00:00"
+        },
+        {
+          "Pump System": "Power Supply",
+          "Bearing Failure": "Voltage Fluctuation",
+          "Critical": "Low",
+          "2024-03-15 00:00:00": "2024-03-18T00:00:00"
+        }
+      ],
+      "sheet_name": "Equipment Failure Events",
+      "last_chunk_index": 0,
+      "last_update_time": "2025-04-04T16:32:37.041699",
+      "streaming_complete": true,
+      "total_chunks": 1,
+      "total_records": 6,
+      "completion_time": "2025-04-04T16:32:37.057630"
+    },
+    "Root Cause Analysis": {
+      "metadata": {
+        "row_1": {
+          "A": "Plant: Manufacturing Line A                      Analysis Period: Q1 2024        Analyst: J. Smith"
+        },
+        "row_2": {
+          "Plant: Manufacturing Line A                      Analysis Period: Q1 2024        Analyst: J. Smith": "Plant: Manufacturing Line A                      Analysis Period: Q1 2024        Analyst: J. Smith"
+        },
+        "row_3": {
+          "Plant: Manufacturing Line A                      Analysis Period: Q1 2024        Analyst: J. Smith": "Plant: Manufacturing Line A                      Analysis Period: Q1 2024        Analyst: J. Smith"
+        },
+        "row_4": {
+          "Plant: Manufacturing Line A                      Analysis Period: Q1 2024        Analyst: J. Smith": "Plant: Manufacturing Line A                      Analysis Period: Q1 2024        Analyst: J. Smith"
+        }
+      },
+      "streaming": true,
+      "estimated_total_rows": 0,
+      "chunks_appended": 0,
+      "data": [],
+      "sheet_name": "Root Cause Analysis",
+      "streaming_complete": true,
+      "total_chunks": 1,
+      "total_records": 0,
+      "completion_time": "2025-04-04T16:32:37.089966"
+    },
+    "Knowledge Graph Relationships": {
+      "metadata": {
+        "headers": {
+          "header_r1": "Target Entity"
+        },
+        "row_1": {
+          "A": "Source Entity",
+          "B": "Relationship"
+        }
+      },
+      "streaming": true,
+      "estimated_total_rows": 0,
+      "chunks_appended": 1,
+      "data": [
+        {
+          "Bearing Failure": "Improper Lubrication",
+          "causedBy": "contributedBy",
+          "Improper Lubrication": "Lubrication Schedule Missed",
+          "95": 90
+        },
+        {
+          "causedBy": "contributedBy",
+          "Improper Lubrication": "Vibration Monitoring Gap",
+          "95": 85
+        },
+        {
+          "causedBy": "contributedBy",
+          "Improper Lubrication": "Training Deficiency",
+          "95": 80
+        },
+        {
+          "causedBy": "affects",
+          "Improper Lubrication": "Bearing Component",
+          "95": 95
+        },
+        {
+          "Bearing Failure": "Training Deficiency",
+          "causedBy": "influences",
+          "Improper Lubrication": "Maintenance Quality",
+          "95": 75
+        },
+        {
+          "Bearing Failure": "Training Deficiency",
+          "causedBy": "influences",
+          "Improper Lubrication": "Operational Compliance",
+          "95": 70
+        },
+        {}
+      ],
+      "sheet_name": "Knowledge Graph Relationships",
+      "last_chunk_index": 0,
+      "last_update_time": "2025-04-04T16:32:37.118613",
+      "streaming_complete": true,
+      "total_chunks": 1,
+      "total_records": 7,
+      "completion_time": "2025-04-04T16:32:37.133419"
+    }
+  },
+  "summary": {
+    "sheet_count": 3,
+    "total_records": 13
+  }
+}

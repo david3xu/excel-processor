@@ -8,6 +8,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
+import json
 
 from config import ExcelProcessorConfig, get_data_access_config
 from core.extractor import DataExtractor
@@ -16,15 +17,16 @@ from excel_io import StrategyFactory, OpenpyxlStrategy, PandasStrategy, Fallback
 from output.formatter import OutputFormatter
 from output.writer import OutputWriter
 from utils.caching import FileCache
-from utils.exceptions import WorkflowConfigurationError, WorkflowError
+from utils.exceptions import WorkflowConfigurationError, WorkflowError, CheckpointResumptionError
 from utils.logging import get_logger
+from utils.checkpointing import CheckpointManager
 from workflows.base_workflow import BaseWorkflow
 from workflows.single_file import process_single_file
 
 logger = get_logger(__name__)
 
 
-# Thread-local storage for strategy factories
+# Thread-local storage for strategy factories and checkpoint managers
 thread_local_storage = threading.local()
 
 
@@ -46,6 +48,11 @@ class BatchWorkflow(BaseWorkflow):
         
         # Create main strategy factory
         self.strategy_factory = self._create_strategy_factory()
+        
+        # Initialize checkpointing if enabled
+        self.checkpoint_manager = None
+        if self.config.use_checkpoints:
+            self.checkpoint_manager = CheckpointManager(self.config.checkpoint_dir)
     
     def validate_config(self) -> None:
         """
@@ -100,6 +107,49 @@ class BatchWorkflow(BaseWorkflow):
         
         return thread_local_storage.strategy_factory
     
+    def _get_thread_local_checkpoint_manager(self) -> Optional[CheckpointManager]:
+        """
+        Get thread-local checkpoint manager for parallel processing.
+        
+        Returns:
+            Thread-local CheckpointManager instance or None if checkpointing is disabled
+        """
+        if not self.config.use_checkpoints:
+            return None
+            
+        if not hasattr(thread_local_storage, 'checkpoint_manager'):
+            thread_local_storage.checkpoint_manager = CheckpointManager(self.config.checkpoint_dir)
+        
+        return thread_local_storage.checkpoint_manager
+    
+    def _should_use_streaming(self, input_file: str) -> bool:
+        """
+        Determine if streaming mode should be used based on file size.
+        
+        Args:
+            input_file: Path to the input file
+            
+        Returns:
+            True if streaming should be used, False otherwise
+        """
+        # If streaming mode is explicitly enabled, use it
+        if self.config.streaming_mode:
+            return True
+        
+        # If file size is above threshold, use streaming
+        try:
+            file_size_mb = os.path.getsize(input_file) / (1024 * 1024)
+            if file_size_mb > self.config.streaming_threshold_mb:
+                logger.info(
+                    f"File size ({file_size_mb:.2f} MB) exceeds threshold "
+                    f"({self.config.streaming_threshold_mb} MB), enabling streaming mode"
+                )
+                return True
+        except OSError as e:
+            logger.warning(f"Could not determine file size: {str(e)}")
+        
+        return False
+    
     def _find_excel_files(self, directory: str) -> List[str]:
         """
         Find Excel files in a directory.
@@ -141,7 +191,46 @@ class BatchWorkflow(BaseWorkflow):
                 step="find_excel_files"
             ) from e
     
-    def _process_file(self, excel_file: str, file_cache: Optional[FileCache] = None) -> Dict[str, Any]:
+    def _get_processed_files_from_checkpoint(self) -> Set[str]:
+        """
+        Get a set of already processed files from the batch checkpoint.
+        
+        Returns:
+            Set of absolute file paths of processed files
+        """
+        if not self.config.resume_from_checkpoint or not self.checkpoint_manager:
+            return set()
+            
+        try:
+            checkpoint_data = self.checkpoint_manager.get_checkpoint(
+                self.config.resume_from_checkpoint
+            )
+            
+            # Validate the checkpoint is for a batch processing
+            if checkpoint_data.get("workflow_type") != "batch":
+                logger.warning(
+                    f"Checkpoint {self.config.resume_from_checkpoint} is not a batch checkpoint. "
+                    f"Starting fresh processing."
+                )
+                return set()
+                
+            # Get processed files from checkpoint
+            state = checkpoint_data.get("state", {})
+            processed_files = state.get("processed_files", [])
+            
+            logger.info(f"Found {len(processed_files)} already processed files in checkpoint")
+            return set(processed_files)
+            
+        except Exception as e:
+            logger.error(f"Failed to retrieve processed files from checkpoint: {str(e)}")
+            return set()
+    
+    def _process_file(
+        self, 
+        excel_file: str, 
+        file_cache: Optional[FileCache] = None,
+        processed_files: Optional[Set[str]] = None
+    ) -> Dict[str, Any]:
         """
         Process a single Excel file as part of batch processing.
         Processes all sheets in the Excel file, similar to MultiSheetWorkflow.
@@ -149,10 +238,20 @@ class BatchWorkflow(BaseWorkflow):
         Args:
             excel_file: Path to the Excel file
             file_cache: Optional cache for avoiding redundant processing
+            processed_files: Set of files already processed (for resuming)
             
         Returns:
             Dictionary with processing results
         """
+        # Check if the file was already processed during resumption
+        if processed_files and os.path.abspath(excel_file) in processed_files:
+            logger.info(f"Skipping already processed file: {excel_file}")
+            return {
+                "status": "skipped",
+                "input_file": excel_file,
+                "message": "File was already processed in previous run"
+            }
+        
         logger.info(f"Processing file: {excel_file}")
         
         # Check cache if available
@@ -167,13 +266,40 @@ class BatchWorkflow(BaseWorkflow):
         file_stem = os.path.splitext(file_name)[0]
         output_file = os.path.join(self.config.output_dir, f"{file_stem}.json")
         
-        # Create components
-        structure_analyzer = StructureAnalyzer()
-        data_extractor = DataExtractor()
-        formatter = OutputFormatter(include_structure_metadata=False)
-        writer = OutputWriter()
+        # Determine if streaming should be used
+        use_streaming = self._should_use_streaming(excel_file)
+        
+        # Get checkpoint manager (thread-local if parallel processing)
+        checkpoint_manager = self._get_thread_local_checkpoint_manager() if self.config.parallel_processing else self.checkpoint_manager
+        
+        # Create a file-specific configuration with streaming options
+        file_config = ExcelProcessorConfig(
+            input_file=excel_file,
+            output_file=output_file,
+            metadata_max_rows=self.config.metadata_max_rows,
+            header_detection_threshold=self.config.header_detection_threshold,
+            include_empty_cells=self.config.include_empty_cells,
+            chunk_size=self.config.chunk_size,
+            streaming_mode=use_streaming,
+            streaming_chunk_size=self.config.streaming_chunk_size,
+            streaming_threshold_mb=self.config.streaming_threshold_mb,
+            streaming_temp_dir=self.config.streaming_temp_dir,
+            memory_threshold=self.config.memory_threshold,
+            use_checkpoints=self.config.use_checkpoints,
+            checkpoint_dir=self.config.checkpoint_dir,
+            checkpoint_interval=self.config.checkpoint_interval
+        )
         
         try:
+            if use_streaming:
+                logger.info(f"Using streaming mode for file: {excel_file}")
+            
+            # Create components
+            structure_analyzer = StructureAnalyzer()
+            data_extractor = DataExtractor()
+            formatter = OutputFormatter(include_structure_metadata=False)
+            writer = OutputWriter()
+            
             # Get factory (thread-local if parallel processing)
             factory = self._get_thread_local_factory() if self.config.parallel_processing else self.strategy_factory
             
@@ -190,6 +316,7 @@ class BatchWorkflow(BaseWorkflow):
                 
                 # Process each sheet
                 sheets_data = {}
+                
                 for sheet_name in sheet_names:
                     try:
                         logger.info(f"Processing sheet: {sheet_name}")
@@ -211,29 +338,105 @@ class BatchWorkflow(BaseWorkflow):
                             header_threshold=self.config.header_detection_threshold
                         )
                         
-                        # Extract hierarchical data
-                        hierarchical_data = data_extractor.extract_data(
-                            sheet_accessor,
-                            sheet_structure.merge_map,
-                            detection_result.data_start_row,
-                            chunk_size=self.config.chunk_size,
-                            include_empty=self.config.include_empty_cells
-                        )
-                        
-                        # Format output for this sheet
-                        sheet_result = formatter.format_output(
-                            detection_result.metadata,
-                            hierarchical_data,
-                            sheet_name=sheet_name
-                        )
-                        
-                        # Add to sheets data
-                        sheets_data[sheet_name] = sheet_result
-                        
-                        logger.info(
-                            f"Processed sheet '{sheet_name}' with "
-                            f"{len(hierarchical_data.records)} records"
-                        )
+                        if use_streaming:
+                            # Process data in streaming mode
+                            sheet_temp_file = os.path.join(
+                                self.config.streaming_temp_dir,
+                                f"{file_stem}_{sheet_name}.json"
+                            )
+                            os.makedirs(os.path.dirname(sheet_temp_file), exist_ok=True)
+                            
+                            # Format and write initial metadata structure
+                            metadata_structure = formatter.format_streaming_sheet_metadata(
+                                detection_result.metadata,
+                                sheet_name=sheet_name,
+                                total_rows_estimated=0
+                            )
+                            writer.initialize_streaming_file(metadata_structure, sheet_temp_file)
+                            
+                            # Process data in chunks
+                            total_records = 0
+                            current_chunk = 0
+                            
+                            for chunk_index, (chunk_data, is_final_chunk) in enumerate(
+                                data_extractor.extract_data_streaming(
+                                    sheet_accessor,
+                                    sheet_structure.merge_map,
+                                    detection_result.data_start_row,
+                                    chunk_size=self.config.streaming_chunk_size,
+                                    include_empty=self.config.include_empty_cells,
+                                    memory_threshold=self.config.memory_threshold
+                                )
+                            ):
+                                current_chunk = chunk_index
+                                total_records += len(chunk_data.records)
+                                
+                                # Format the chunk
+                                chunk_output = formatter.format_chunk(
+                                    chunk_data,
+                                    chunk_index,
+                                    sheet_name=sheet_name
+                                )
+                                
+                                # Append to sheet's temp file
+                                writer.append_chunk_to_file(chunk_output, sheet_temp_file)
+                                
+                                # Create sheet checkpoint if needed
+                                if checkpoint_manager and (chunk_index + 1) % self.config.checkpoint_interval == 0:
+                                    # Generate checkpoint ID for this file
+                                    file_checkpoint_id = checkpoint_manager.generate_checkpoint_id(excel_file)
+                                    
+                                    # Create checkpoint for this file
+                                    checkpoint_manager.create_checkpoint(
+                                        checkpoint_id=file_checkpoint_id,
+                                        file_path=excel_file,
+                                        sheet_name=sheet_name,
+                                        current_chunk=chunk_index,
+                                        rows_processed=total_records,
+                                        output_file=output_file,
+                                        sheet_completion_status={sheet_name: is_final_chunk},
+                                        temp_files={sheet_name: sheet_temp_file}
+                                    )
+                            
+                            # Finalize sheet's temp file
+                            completion_info = formatter.format_streaming_completion(
+                                total_chunks=current_chunk + 1,
+                                total_records=total_records,
+                                sheet_name=sheet_name
+                            )
+                            writer.finalize_streaming_file(completion_info, sheet_temp_file)
+                            
+                            # Load the sheet's completed data
+                            with open(sheet_temp_file, 'r') as f:
+                                sheets_data[sheet_name] = json.load(f)
+                            
+                            logger.info(f"Processed sheet '{sheet_name}' with {total_records} records")
+                            
+                        else:
+                            # Standard processing mode
+                            hierarchical_data = data_extractor.extract_data(
+                                sheet_accessor,
+                                sheet_structure.merge_map,
+                                detection_result.data_start_row,
+                                chunk_size=self.config.chunk_size,
+                                include_empty=self.config.include_empty_cells
+                            )
+                            
+                            # Format output for this sheet
+                            sheet_result = formatter.format_output(
+                                detection_result.metadata,
+                                hierarchical_data,
+                                sheet_name=sheet_name
+                            )
+                            
+                            # Add to sheets data
+                            sheets_data[sheet_name] = sheet_result
+                            
+                            logger.info(
+                                f"Processed sheet '{sheet_name}' with "
+                                f"{len(hierarchical_data.records)} records"
+                            )
+                            
                     except Exception as e:
                         logger.error(f"Failed to process sheet '{sheet_name}': {str(e)}")
                         sheets_data[sheet_name] = {
@@ -248,38 +451,32 @@ class BatchWorkflow(BaseWorkflow):
                 # Write output
                 writer.write_json(multi_sheet_result, output_file)
                 
-                # Prepare result
-                success_count = sum(
-                    1 for data in sheets_data.values() 
-                    if data.get("status") != "error"
-                )
+                # Cache result if caching is enabled
+                if file_cache and self.config.use_cache:
+                    file_cache.put(excel_file, {
+                        "status": "success",
+                        "input_file": excel_file,
+                        "output_file": output_file,
+                        "processed_sheets": len(sheets_data)
+                    })
                 
-                result = {
+                return {
                     "status": "success",
                     "input_file": excel_file,
                     "output_file": output_file,
-                    "total_sheets": len(sheet_names),
                     "processed_sheets": len(sheets_data),
-                    "success_count": success_count,
-                    "failure_count": len(sheets_data) - success_count,
-                    "sheet_names": list(sheets_data.keys()),
-                    "strategy_used": factory.determine_optimal_strategy(excel_file).get_strategy_name()
+                    "streaming": use_streaming
                 }
-                
-                # Store in cache if available
-                if file_cache and self.config.use_cache:
-                    file_cache.set(excel_file, result)
-                
-                return result
                 
             finally:
                 # Ensure workbook is closed
                 reader.close_workbook()
                 
         except Exception as e:
-            logger.error(f"Error processing file: {str(e)}")
+            logger.error(f"Failed to process file {excel_file}: {str(e)}")
             return {
                 "status": "error",
+                "input_file": excel_file,
                 "error": str(e),
                 "error_type": e.__class__.__name__
             }
@@ -297,111 +494,194 @@ class BatchWorkflow(BaseWorkflow):
         try:
             logger.info(f"Processing Excel files in directory: {self.config.input_dir}")
             
-            # Create output directory if it doesn't exist
+            # Get processed files from checkpoint if resuming
+            processed_files = self._get_processed_files_from_checkpoint()
+            
+            # Create batch checkpoint ID if needed
+            batch_checkpoint_id = None
+            if self.checkpoint_manager and self.config.use_checkpoints:
+                if self.config.resume_from_checkpoint:
+                    batch_checkpoint_id = self.config.resume_from_checkpoint
+                else:
+                    batch_checkpoint_id = self.checkpoint_manager.generate_checkpoint_id(
+                        self.config.input_dir, 
+                        prefix="batch"
+                    )
+                logger.info(f"Using batch checkpoint ID: {batch_checkpoint_id}")
+            
+            # Ensure output directory exists
             os.makedirs(self.config.output_dir, exist_ok=True)
             
-            # Find Excel files to process
-            excel_files = self._find_excel_files(self.config.input_dir)
-            
-            # Initialize cache if enabled
+            # Create cache if needed
             file_cache = None
             if self.config.use_cache:
-                cache_dir = self.config.cache_dir
-                logger.info(f"Using cache directory: {cache_dir}")
+                from utils.caching import FileCache
+                cache_dir = self.config.cache_dir or os.path.join(self.config.output_dir, ".cache")
                 file_cache = FileCache(cache_dir=cache_dir)
+                logger.info(f"Using file cache in {cache_dir}")
+            
+            # Find Excel files
+            excel_files = self._find_excel_files(self.config.input_dir)
+            
+            # Count total files to process (excluding already processed ones)
+            files_to_process = [f for f in excel_files if os.path.abspath(f) not in processed_files]
+            files_to_process_count = len(files_to_process)
+            
+            logger.info(f"Found {len(excel_files)} Excel files, {files_to_process_count} to process")
             
             # Start progress reporting
-            self.reporter.start(len(excel_files), f"Processing {len(excel_files)} files")
+            self.reporter.start(files_to_process_count, f"Processing {files_to_process_count} Excel files")
             
-            # Process files
-            batch_results = {}
-            total_sheet_count = 0
-            total_success_sheets = 0
+            # Process files (parallel or sequential)
+            results = []
             
-            if self.config.parallel_processing and len(excel_files) > 1:
-                # Process files in parallel
-                max_workers = min(self.config.max_workers, len(excel_files))
-                logger.info(f"Processing {len(excel_files)} files in parallel with {max_workers} workers")
+            if self.config.parallel_processing:
+                # Parallel processing
+                max_workers = self.config.max_workers or min(32, (os.cpu_count() or 1) + 4)
+                logger.info(f"Using parallel processing with {max_workers} workers")
                 
                 with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                    # Submit tasks
-                    future_to_file = {
-                        executor.submit(self._process_file, excel_file, file_cache): excel_file
-                        for excel_file in excel_files
-                    }
+                    futures = []
                     
-                    # Collect results as they complete
-                    for i, future in enumerate(future_to_file):
-                        excel_file = future_to_file[future]
-                        file_name = os.path.basename(excel_file)
-                        
-                        try:
-                            self.reporter.update(i + 1, f"Processing file: {file_name}")
-                            result = future.result()
-                            batch_results[file_name] = result
+                    # Submit tasks
+                    for file_index, excel_file in enumerate(excel_files):
+                        if os.path.abspath(excel_file) in processed_files:
+                            # Skip already processed files
+                            results.append({
+                                "status": "skipped",
+                                "input_file": excel_file,
+                                "message": "File was already processed in previous run"
+                            })
+                            continue
                             
-                            # Count sheets
-                            if result.get("status") == "success":
-                                total_sheet_count += result.get("total_sheets", 0)
-                                total_success_sheets += result.get("success_count", 0)
+                        futures.append(executor.submit(
+                            self._process_file, 
+                            excel_file, 
+                            file_cache
+                        ))
+                    
+                    # Process results as they complete
+                    for i, future in enumerate(futures):
+                        try:
+                            result = future.result()
+                            results.append(result)
+                            
+                            # Update progress
+                            self.reporter.update(i + 1, f"Processed {i + 1}/{files_to_process_count} files")
+                            
+                            # Update batch checkpoint with processed file
+                            if self.checkpoint_manager and self.config.use_checkpoints and result["status"] == "success":
+                                # Add to processed files set
+                                processed_files.add(os.path.abspath(result["input_file"]))
+                                
+                                # Update batch checkpoint
+                                self.checkpoint_manager.create_checkpoint(
+                                    checkpoint_id=batch_checkpoint_id,
+                                    file_path=self.config.input_dir,
+                                    sheet_name="",
+                                    current_chunk=0,
+                                    rows_processed=0,
+                                    output_file=self.config.output_dir,
+                                    sheet_completion_status={},
+                                    temp_files={},
+                                    workflow_type="batch",
+                                    processed_files=list(processed_files)
+                                )
+                                
                         except Exception as e:
-                            logger.error(f"Failed to process file {file_name}: {str(e)}")
-                            batch_results[file_name] = {
+                            logger.error(f"Error processing file {i}: {str(e)}")
+                            results.append({
                                 "status": "error",
                                 "error": str(e),
                                 "error_type": e.__class__.__name__
-                            }
+                            })
             else:
-                # Process files sequentially
-                for i, excel_file in enumerate(excel_files):
-                    file_name = os.path.basename(excel_file)
-                    
-                    try:
-                        self.reporter.update(i + 1, f"Processing file: {file_name}")
-                        result = self._process_file(excel_file, file_cache)
-                        batch_results[file_name] = result
+                # Sequential processing
+                for file_index, excel_file in enumerate(excel_files):
+                    # Skip if already processed
+                    if os.path.abspath(excel_file) in processed_files:
+                        results.append({
+                            "status": "skipped",
+                            "input_file": excel_file,
+                            "message": "File was already processed in previous run"
+                        })
+                        continue
                         
-                        # Count sheets
-                        if result.get("status") == "success":
-                            total_sheet_count += result.get("total_sheets", 0)
-                            total_success_sheets += result.get("success_count", 0)
-                    except Exception as e:
-                        logger.error(f"Failed to process file {file_name}: {str(e)}")
-                        batch_results[file_name] = {
-                            "status": "error",
-                            "error": str(e),
-                            "error_type": e.__class__.__name__
-                        }
-            
-            # Generate summary
-            success_count = sum(
-                1 for result in batch_results.values() 
-                if result.get("status") == "success"
-            )
+                    # Process file
+                    self.reporter.update(
+                        file_index - len(processed_files) + 1, 
+                        f"Processing file {file_index + 1}/{len(excel_files)}: {os.path.basename(excel_file)}"
+                    )
+                    
+                    result = self._process_file(excel_file, file_cache, processed_files)
+                    results.append(result)
+                    
+                    # Update batch checkpoint with processed file
+                    if self.checkpoint_manager and self.config.use_checkpoints and result["status"] == "success":
+                        # Add to processed files set
+                        processed_files.add(os.path.abspath(excel_file))
+                        
+                        # Update batch checkpoint
+                        self.checkpoint_manager.create_checkpoint(
+                            checkpoint_id=batch_checkpoint_id,
+                            file_path=self.config.input_dir,
+                            sheet_name="",
+                            current_chunk=0,
+                            rows_processed=0,
+                            output_file=self.config.output_dir,
+                            sheet_completion_status={},
+                            temp_files={},
+                            workflow_type="batch",
+                            processed_files=list(processed_files)
+                        )
             
             # Finish progress reporting
-            self.reporter.finish(f"Processing complete: {success_count}/{len(excel_files)} files, {total_success_sheets}/{total_sheet_count} sheets")
+            self.reporter.finish("Batch processing complete")
             
-            # Return result
+            # Process results
+            success_count = sum(1 for result in results if result.get("status") == "success")
+            skipped_count = sum(1 for result in results if result.get("status") == "skipped")
+            error_count = sum(1 for result in results if result.get("status") == "error")
+            
+            logger.info(
+                f"Batch processing complete: {success_count} successful, "
+                f"{skipped_count} skipped, {error_count} failed"
+            )
+            
+            # Create final batch checkpoint
+            if self.checkpoint_manager and self.config.use_checkpoints:
+                self.checkpoint_manager.create_checkpoint(
+                    checkpoint_id=batch_checkpoint_id,
+                    file_path=self.config.input_dir,
+                    sheet_name="",
+                    current_chunk=0,
+                    rows_processed=0,
+                    output_file=self.config.output_dir,
+                    sheet_completion_status={},
+                    temp_files={},
+                    workflow_type="batch",
+                    processed_files=list(processed_files),
+                    metadata={
+                        "total_files": len(excel_files),
+                        "success_count": success_count,
+                        "error_count": error_count,
+                        "skipped_count": skipped_count,
+                        "completed": True
+                    }
+                )
+            
             return {
                 "status": "success",
                 "input_dir": self.config.input_dir,
                 "output_dir": self.config.output_dir,
                 "total_files": len(excel_files),
-                "processed_files": len(batch_results),
-                "success_file_count": success_count,
-                "failure_file_count": len(batch_results) - success_count,
-                "total_sheet_count": total_sheet_count,
-                "success_sheet_count": total_success_sheets,
-                "file_names": list(batch_results.keys()),
-                "cache_enabled": self.config.use_cache,
-                "parallel_processing": self.config.parallel_processing,
-                "sheet_counts": {
-                    file_name: result.get("total_sheets", 0) 
-                    for file_name, result in batch_results.items() 
-                    if result.get("status") == "success"
-                }
+                "processed_files": len(results),
+                "success_count": success_count,
+                "error_count": error_count,
+                "skipped_count": skipped_count,
+                "checkpoint_id": batch_checkpoint_id
             }
+            
         except Exception as e:
             self.reporter.error(f"Failed to process batch: {str(e)}")
             raise WorkflowError(

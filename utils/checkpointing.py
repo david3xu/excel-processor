@@ -78,6 +78,9 @@ class CheckpointManager:
         sheet_completion_status: Dict[str, bool],
         temp_files: Dict[str, str],
         total_chunks_estimated: int = 0,
+        current_sheet_index: int = 0,
+        workflow_type: str = "single",
+        processed_files: Optional[List[str]] = None,
         metadata: Optional[Dict[str, Any]] = None
     ) -> str:
         """
@@ -93,6 +96,9 @@ class CheckpointManager:
             sheet_completion_status: Dictionary mapping sheet names to completion status
             temp_files: Dictionary mapping sheet names to temporary output files
             total_chunks_estimated: Estimated total chunks (optional)
+            current_sheet_index: Index of current sheet in multi-sheet processing (optional)
+            workflow_type: Type of workflow ("single", "multi", or "batch")
+            processed_files: List of already processed files for batch workflow (optional)
             metadata: Additional metadata to include in the checkpoint (optional)
             
         Returns:
@@ -106,6 +112,7 @@ class CheckpointManager:
                 "checkpoint_id": checkpoint_id,
                 "timestamp": datetime.now().isoformat(),
                 "file_path": str(file_path),
+                "workflow_type": workflow_type,
                 "state": {
                     "current_sheet": sheet_name,
                     "current_chunk": current_chunk,
@@ -113,9 +120,14 @@ class CheckpointManager:
                     "total_chunks_estimated": total_chunks_estimated,
                     "output_file": str(output_file),
                     "sheet_status": sheet_completion_status,
-                    "temp_files": temp_files
+                    "temp_files": temp_files,
+                    "current_sheet_index": current_sheet_index
                 }
             }
+            
+            # Add processed files for batch workflow
+            if workflow_type == "batch" and processed_files:
+                checkpoint_data["state"]["processed_files"] = processed_files
             
             # Add optional metadata if provided
             if metadata:
