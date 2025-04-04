@@ -9,7 +9,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Union
 
-from excel_processor.utils.exceptions import ConfigurationError
+from utils.exceptions import ConfigurationError
 
 
 @dataclass

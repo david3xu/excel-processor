@@ -4,9 +4,9 @@ Provides structures for metadata with validation and serialization.
 """
 
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
-from excel_processor.utils.exceptions import MetadataExtractionError
+from utils.exceptions import MetadataExtractionError
 
 
 @dataclass

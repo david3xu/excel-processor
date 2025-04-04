@@ -1,0 +1,2 @@
+# This file ensures that the directory is tracked in Git
+# even when it's empty after .gitignore excludes the JSON files 

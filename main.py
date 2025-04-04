@@ -6,12 +6,12 @@ Orchestrates workflow selection and execution.
 import sys
 from typing import Any, Dict
 
-from excel_processor.config import ExcelProcessorConfig
-from excel_processor.utils.exceptions import WorkflowError
-from excel_processor.utils.logging import configure_logging, get_logger
-from excel_processor.workflows.batch import process_batch
-from excel_processor.workflows.multi_sheet import process_multi_sheet
-from excel_processor.workflows.single_file import process_single_file
+from config import ExcelProcessorConfig
+from utils.exceptions import WorkflowError
+from utils.logging import configure_logging, get_logger
+from workflows.batch import process_batch
+from workflows.multi_sheet import process_multi_sheet
+from workflows.single_file import process_single_file
 
 logger = get_logger(__name__)
 
@@ -87,7 +87,7 @@ def run() -> int:
     Returns:
         Exit code (0 for success, non-zero for failure)
     """
-    from excel_processor.cli import run_cli
+    from cli import run_cli
     return run_cli()
 
 

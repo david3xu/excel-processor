@@ -6,7 +6,7 @@ Provides structures for representing parent-child relationships in data.
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
-from excel_processor.models.excel_structure import CellPosition, CellRange
+from models.excel_structure import CellPosition, CellRange
 
 
 @dataclass

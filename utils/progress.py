@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Union
 
-from excel_processor.utils.logging import get_logger
+from utils.logging import get_logger
 
 logger = get_logger(__name__)
 

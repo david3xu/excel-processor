@@ -5,15 +5,15 @@ Processes multiple sheets in an Excel file and produces combined JSON output.
 
 from typing import Any, Dict, List, Optional
 
-from excel_processor.config import ExcelProcessorConfig
-from excel_processor.core.extractor import DataExtractor
-from excel_processor.core.reader import ExcelReader
-from excel_processor.core.structure import StructureAnalyzer
-from excel_processor.output.formatter import OutputFormatter
-from excel_processor.output.writer import OutputWriter
-from excel_processor.utils.exceptions import WorkflowConfigurationError, WorkflowError
-from excel_processor.utils.logging import get_logger
-from excel_processor.workflows.base_workflow import BaseWorkflow
+from config import ExcelProcessorConfig
+from core.extractor import DataExtractor
+from core.reader import ExcelReader
+from core.structure import StructureAnalyzer
+from output.formatter import OutputFormatter
+from output.writer import OutputWriter
+from utils.exceptions import WorkflowConfigurationError, WorkflowError
+from utils.logging import get_logger
+from workflows.base_workflow import BaseWorkflow
 
 logger = get_logger(__name__)
 

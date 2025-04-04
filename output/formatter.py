@@ -5,10 +5,10 @@ Creates the output structure with metadata and hierarchical data.
 
 from typing import Any, Dict, List, Optional
 
-from excel_processor.models.hierarchical_data import HierarchicalData
-from excel_processor.models.metadata import Metadata
-from excel_processor.utils.exceptions import FormattingError
-from excel_processor.utils.logging import get_logger
+from models.hierarchical_data import HierarchicalData
+from models.metadata import Metadata
+from utils.exceptions import FormattingError
+from utils.logging import get_logger
 
 logger = get_logger(__name__)
 

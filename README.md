@@ -55,8 +55,8 @@ excel-processor batch -i input_dir -o output_dir --cache
 ### Python API
 
 ```python
-from excel_processor.workflows.single_file import process_single_file
-from excel_processor.config import ExcelProcessorConfig
+from workflows.single_file import process_single_file
+from config import ExcelProcessorConfig
 
 # Create configuration
 config = ExcelProcessorConfig(

@@ -12,11 +12,11 @@ from openpyxl.cell.cell import Cell
 from openpyxl.workbook.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
-from excel_processor.models.excel_structure import (CellDataType, CellPosition,
+from models.excel_structure import (CellDataType, CellPosition,
                                                   SheetDimensions)
-from excel_processor.utils.exceptions import (ExcelReadError, FileNotFoundError,
+from utils.exceptions import (ExcelReadError, FileNotFoundError,
                                             FileReadError, SheetNotFoundError)
-from excel_processor.utils.logging import get_logger
+from utils.logging import get_logger
 
 logger = get_logger(__name__)
 

@@ -9,14 +9,14 @@ import openpyxl
 import pandas as pd
 from openpyxl.worksheet.worksheet import Worksheet
 
-from excel_processor.core.reader import ExcelReader
-from excel_processor.models.excel_structure import (CellPosition, SheetStructure)
-from excel_processor.models.hierarchical_data import (HierarchicalData,
+from core.reader import ExcelReader
+from models.excel_structure import (CellPosition, SheetStructure)
+from models.hierarchical_data import (HierarchicalData,
                                                     HierarchicalDataItem,
                                                     HierarchicalRecord,
                                                     MergeInfo)
-from excel_processor.utils.exceptions import DataExtractionError, HierarchicalDataError
-from excel_processor.utils.logging import get_logger
+from utils.exceptions import DataExtractionError, HierarchicalDataError
+from utils.logging import get_logger
 
 logger = get_logger(__name__)
 

@@ -33,7 +33,7 @@ dev = [
 ]
 
 [project.scripts]
-excel-processor = "excel_processor.main:main"
+excel-processor = "main:main"
 
 [tool.mypy]
 python_version = "3.8"

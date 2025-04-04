@@ -7,10 +7,10 @@ import traceback
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional
 
-from excel_processor.config import ExcelProcessorConfig
-from excel_processor.utils.exceptions import ExcelProcessorError, WorkflowError
-from excel_processor.utils.logging import get_logger
-from excel_processor.utils.progress import ProgressReporter, create_reporter
+from config import ExcelProcessorConfig
+from utils.exceptions import ExcelProcessorError, WorkflowError
+from utils.logging import get_logger
+from utils.progress import ProgressReporter, create_reporter
 
 logger = get_logger(__name__)
 

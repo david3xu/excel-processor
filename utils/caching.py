@@ -10,8 +10,8 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
-from excel_processor.utils.exceptions import CacheInvalidationError, CachingError
-from excel_processor.utils.logging import get_logger
+from utils.exceptions import CacheInvalidationError, CachingError
+from utils.logging import get_logger
 
 logger = get_logger(__name__)
 

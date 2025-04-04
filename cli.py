@@ -8,9 +8,9 @@ import os
 import sys
 from typing import Dict, List, Optional
 
-from excel_processor.config import ExcelProcessorConfig, get_config
-from excel_processor.utils.logging import configure_logging
-from excel_processor.utils.exceptions import ConfigurationError
+from config import ExcelProcessorConfig, get_config
+from utils.logging import configure_logging
+from utils.exceptions import ConfigurationError
 
 
 def parse_args() -> argparse.Namespace:
@@ -174,7 +174,7 @@ def run_cli() -> int:
         )
         
         # Import here to avoid circular imports
-        from excel_processor.main import main as run_main
+        from main import main as run_main
         
         # Run main with configuration
         result = run_main(args.command, config)

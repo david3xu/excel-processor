@@ -8,16 +8,16 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import openpyxl
 from openpyxl.worksheet.worksheet import Worksheet
 
-from excel_processor.models.excel_structure import (CellPosition, CellRange,
+from models.excel_structure import (CellPosition, CellRange,
                                                    MergedCell, SheetDimensions,
                                                    SheetStructure)
-from excel_processor.models.metadata import (Metadata, MetadataDetectionResult,
+from models.metadata import (Metadata, MetadataDetectionResult,
                                            MetadataItem, MetadataSection)
-from excel_processor.utils.exceptions import (HeaderDetectionError,
+from utils.exceptions import (HeaderDetectionError,
                                             MergeMapError,
                                             MetadataExtractionError,
                                             StructureAnalysisError)
-from excel_processor.utils.logging import get_logger
+from utils.logging import get_logger
 
 logger = get_logger(__name__)
 

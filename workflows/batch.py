@@ -8,14 +8,14 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from excel_processor.config import ExcelProcessorConfig
-from excel_processor.output.formatter import OutputFormatter
-from excel_processor.output.writer import OutputWriter
-from excel_processor.utils.caching import FileCache
-from excel_processor.utils.exceptions import WorkflowConfigurationError, WorkflowError
-from excel_processor.utils.logging import get_logger
-from excel_processor.workflows.base_workflow import BaseWorkflow
-from excel_processor.workflows.single_file import process_single_file
+from config import ExcelProcessorConfig
+from output.formatter import OutputFormatter
+from output.writer import OutputWriter
+from utils.caching import FileCache
+from utils.exceptions import WorkflowConfigurationError, WorkflowError
+from utils.logging import get_logger
+from workflows.base_workflow import BaseWorkflow
+from workflows.single_file import process_single_file
 
 logger = get_logger(__name__)
 

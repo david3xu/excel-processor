@@ -10,7 +10,7 @@ __author__ = "Excel Processor Team"
 __email__ = "excelprocessor@example.com"
 __license__ = "MIT"
 
-from excel_processor.config import ExcelProcessorConfig, get_config
-from excel_processor.workflows.single_file import process_single_file
-from excel_processor.workflows.multi_sheet import process_multi_sheet
-from excel_processor.workflows.batch import process_batch
+from config import ExcelProcessorConfig, get_config
+from workflows.single_file import process_single_file
+from workflows.multi_sheet import process_multi_sheet
+from workflows.batch import process_batch
