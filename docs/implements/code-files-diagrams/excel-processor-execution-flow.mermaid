@@ -1,0 +1,151 @@
+sequenceDiagram
+    autonumber
+    
+    %% Multi-Sheet Processing Flow
+    participant Client as Client Code
+    participant MF as process_multi_sheet()
+    participant MSW as MultiSheetWorkflow
+    participant SF as StrategyFactory
+    participant Reader as ExcelReaderInterface
+    participant Accessor as SheetAccessorInterface
+    participant SA as StructureAnalyzer
+    participant DE as DataExtractor
+    participant OF as OutputFormatter
+    participant OW as OutputWriter
+    
+    Note over Client,OW: Multi-Sheet Processing Flow
+    
+    Client->>+MF: process_multi_sheet(input_file, output_file, sheet_names)
+    MF->>+MSW: create MultiSheetWorkflow(config)
+    MF->>MSW: run()
+    MSW->>MSW: validate_config()
+    MSW->>+SF: create StrategyFactory(config)
+    MSW->>SF: create_reader(input_file)
+    SF-->>-MSW: reader (ExcelReaderInterface implementation)
+    MSW->>+Reader: open_workbook()
+    
+    alt sheet_names not provided
+        MSW->>Reader: get_sheet_names()
+        Reader-->>MSW: all_sheet_names
+    end
+    
+    Note over MSW: For each sheet_name
+    MSW->>MSW: _process_sheet(reader, sheet_name)
+    
+    %% Process individual sheet
+    MSW->>+Reader: get_sheet_accessor(sheet_name)
+    Reader-->>-MSW: sheet_accessor
+    MSW->>+SA: analyze_sheet(sheet_accessor)
+    SA->>+Accessor: get_dimensions()
+    Accessor-->>-SA: dimensions
+    SA->>+Accessor: get_merged_regions()
+    Accessor-->>-SA: merged_regions
+    SA-->>-MSW: sheet_structure
+    
+    MSW->>+SA: detect_metadata_and_header(sheet_accessor)
+    SA->>+Accessor: get various metadata fields
+    Accessor-->>-SA: metadata values
+    SA-->>-MSW: metadata_detection_result
+    
+    MSW->>+DE: extract_data(sheet_accessor, data_start_row)
+    DE->>+Accessor: get_row_values(header_row)
+    Accessor-->>-DE: header_values
+    DE->>+Accessor: iterate_rows(data_start_row)
+    Accessor-->>-DE: row data chunks
+    DE-->>-MSW: hierarchical_data
+    
+    MSW->>+OF: format_output(metadata, hierarchical_data, sheet_name)
+    OF-->>-MSW: formatted_result
+    
+    Note over MSW: Add to sheets_data dictionary
+    
+    %% Combine and output
+    MSW->>+OF: format_multi_sheet_output(sheets_data)
+    OF-->>-MSW: combined_result
+    
+    MSW->>+OW: write_json(combined_result, output_file)
+    OW-->>-MSW: success
+    
+    MSW->>-Reader: close_workbook()
+    MSW-->>-MF: execution_result
+    MF-->>-Client: processing_result
+    
+    %% Batch Processing Flow
+    participant BC as Client Code
+    participant BF as process_batch()
+    participant BW as BatchWorkflow
+    participant Cache as FileCache
+    participant Thread as ThreadPoolExecutor
+    participant PSF as process_single_file()
+    
+    Note over BC,PSF: Batch Processing Flow
+    
+    BC->>+BF: process_batch(input_dir, output_dir)
+    BF->>+BW: create BatchWorkflow(config)
+    BF->>BW: run()
+    BW->>BW: validate_config()
+    BW->>+BW: _find_excel_files(input_dir)
+    BW-->>-BW: excel_files list
+    
+    alt use_cache enabled
+        BW->>+Cache: initialize FileCache(cache_dir)
+    end
+    
+    alt parallel_processing enabled
+        BW->>+BW: _parallelize_processing(excel_files, cache)
+        BW->>+Thread: Create ThreadPoolExecutor(max_workers)
+        
+        Note over BW,Thread: Submit tasks for each file
+        
+        loop For each excel_file
+            BW->>Thread: submit(_thread_worker, excel_file)
+        end
+        
+        loop As each future completes
+            Thread-->>BW: future.result() (file processing result)
+            BW->>BW: Add to batch_results
+        end
+        
+        BW-->>-Thread: All files processed
+    else sequential processing
+        loop For each excel_file
+            BW->>+BW: _process_file(excel_file, cache)
+            
+            alt cache enabled
+                BW->>+Cache: get(excel_file)
+                Cache-->>-BW: cache_hit, cached_result
+                
+                alt cache_hit
+                    Note over BW: Use cached result
+                else cache_miss
+                    BW->>+SF: create StrategyFactory(config)
+                    BW->>SF: create_reader(excel_file)
+                    SF-->>-BW: reader
+                    BW->>+PSF: process with reader
+                    PSF-->>-BW: result
+                    
+                    alt cache enabled
+                        BW->>Cache: set(excel_file, result)
+                    end
+                end
+            else cache disabled
+                BW->>+SF: create StrategyFactory(config)
+                BW->>SF: create_reader(excel_file)
+                SF-->>-BW: reader
+                BW->>+PSF: process with reader
+                PSF-->>-BW: result
+            end
+            
+            BW-->>-BW: result
+            BW->>BW: Add to batch_results
+        end
+    end
+    
+    BW->>+OF: format_batch_summary(batch_results)
+    OF-->>-BW: summary
+    
+    BW->>+OW: write_json(summary, summary_file)
+    OW-->>-BW: success
+    
+    BW-->>-BF: execution_result
+    BF-->>-BC: processing_result

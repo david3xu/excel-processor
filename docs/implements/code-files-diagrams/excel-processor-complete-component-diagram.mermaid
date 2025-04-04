@@ -1,0 +1,279 @@
+classDiagram
+    %% Interface Layer - Core Abstraction Contracts
+    class ExcelReaderInterface {
+        <<interface>>
+        +open_workbook() void
+        +close_workbook() void
+        +get_sheet_names() List~string~
+        +get_sheet_accessor(sheet_name) SheetAccessorInterface
+    }
+    
+    class SheetAccessorInterface {
+        <<interface>>
+        +get_dimensions() Tuple~int,int,int,int~
+        +get_merged_regions() List~Tuple~
+        +get_cell_value(row, column) Any
+        +get_row_values(row) Dict~int,Any~
+        +iterate_rows(start_row, end_row, chunk_size) Iterator
+    }
+    
+    class CellValueExtractorInterface {
+        <<interface>>
+        +extract_string(value) str
+        +extract_number(value) float
+        +extract_date(value) str
+        +extract_boolean(value) bool
+        +detect_type(value) str
+    }
+
+    %% Strategy Selection Components
+    class StrategyFactory {
+        -strategies List~ExcelAccessStrategy~
+        -config Dict
+        +register_strategy(strategy)
+        +create_reader(file_path) ExcelReaderInterface
+        -determine_optimal_strategy(file_path) ExcelAccessStrategy
+        -check_complex_structure(file_path) bool
+        -get_strategy_by_name(name) ExcelAccessStrategy
+    }
+    
+    class ExcelAccessStrategy {
+        <<abstract>>
+        +create_reader(file_path) ExcelReaderInterface
+        +can_handle_file(file_path) bool
+        +get_strategy_name() str
+        +get_capabilities() Dict~string,bool~
+    }
+    
+    class OpenpyxlStrategy {
+        +create_reader(file_path) OpenpyxlReader
+        +can_handle_file(file_path) bool
+        +get_strategy_name() str
+        -handle_complex_structures(workbook) bool
+    }
+    
+    class PandasStrategy {
+        +create_reader(file_path) PandasReader
+        +can_handle_file(file_path) bool
+        +get_strategy_name() str
+        -optimize_memory_usage(options) Dict
+    }
+    
+    class FallbackStrategy {
+        +create_reader(file_path) FallbackReader
+        +can_handle_file(file_path) bool
+        +get_strategy_name() str
+        -implement_recovery_mechanisms() void
+    }
+    
+    %% Strategy Implementations
+    class OpenpyxlReader {
+        -workbook Workbook
+        -file_path str
+        +open_workbook() void
+        +close_workbook() void
+        +get_sheet_names() List~string~
+        +get_sheet_accessor(sheet_name) OpenpyxlSheetAccessor
+    }
+    
+    class PandasReader {
+        -excel_file str
+        -dataframes Dict~string,DataFrame~
+        +open_workbook() void
+        +close_workbook() void
+        +get_sheet_names() List~string~
+        +get_sheet_accessor(sheet_name) PandasSheetAccessor
+    }
+
+    class OpenpyxlSheetAccessor {
+        -worksheet Worksheet
+        -cell_value_extractor OpenpyxlCellValueExtractor
+        +get_dimensions() Tuple~int,int,int,int~
+        +get_merged_regions() List~Tuple~
+        +get_cell_value(row, column) Any
+        +get_row_values(row) Dict~int,Any~
+        +iterate_rows(start_row, end_row, chunk_size) Iterator
+    }
+    
+    class PandasSheetAccessor {
+        -dataframe DataFrame
+        -sheet_name str
+        +get_dimensions() Tuple~int,int,int,int~
+        +get_merged_regions() List~Tuple~
+        +get_cell_value(row, column) Any
+        +get_row_values(row) Dict~int,Any~
+        +iterate_rows(start_row, end_row, chunk_size) Iterator
+    }
+    
+    %% Legacy Adapter Components
+    class LegacyReaderAdapter {
+        -legacy_reader ExcelReader
+        -file_path str
+        +open_workbook() void
+        +close_workbook() void
+        +get_sheet_names() List~string~
+        +get_sheet_accessor(sheet_name) LegacySheetAdapter
+    }
+    
+    class LegacySheetAdapter {
+        -legacy_sheet Worksheet
+        -legacy_reader ExcelReader
+        +get_dimensions() Tuple~int,int,int,int~
+        +get_merged_regions() List~Tuple~
+        +get_cell_value(row, column) Any
+        +get_row_values(row) Dict~int,Any~
+        +iterate_rows(start_row, end_row, chunk_size) Iterator
+    }
+    
+    %% Core Processing Components
+    class StructureAnalyzer {
+        +analyze_sheet(sheet_accessor) SheetStructure
+        +build_merge_map(sheet_accessor) Tuple~Dict,List~
+        +extract_metadata(sheet_accessor, merge_map) Tuple~Metadata,int~
+        +identify_header_row(sheet_accessor, merge_map, metadata_rows) int
+        +detect_metadata_and_header(sheet_accessor) MetadataDetectionResult
+    }
+    
+    class DataExtractor {
+        +extract_data(sheet_accessor, data_start_row, chunk_size) HierarchicalData
+        -_process_row(row_data, row_idx, headers, merged_regions) HierarchicalRecord
+        -_identify_vertical_merges(row_idx, headers, merged_regions) Dict
+        +extract_hierarchical_data(reader, sheet_structure, data_start_row) HierarchicalData
+    }
+    
+    %% Workflow Components
+    class BaseWorkflow {
+        <<abstract>>
+        #config ExcelProcessorConfig
+        #reporter ProgressReporter
+        +run() Dict~string,Any~
+        #execute() Dict~string,Any~
+        #validate_config() void
+        -_create_reporter() ProgressReporter
+    }
+    
+    class SingleFileWorkflow {
+        +validate_config() void
+        +execute() Dict~string,Any~
+    }
+    
+    class MultiSheetWorkflow {
+        +validate_config() void
+        +execute() Dict~string,Any~
+        -_process_sheet(reader, sheet_name, factory) Dict~string,Any~
+        -_handle_sheet_error(sheet_name, error) Dict~string,Any~
+    }
+    
+    class BatchWorkflow {
+        +validate_config() void
+        +execute() Dict~string,Any~
+        -_process_file(excel_file, file_cache, strategy_factory) Dict~string,Any~
+        -_find_excel_files(directory) List~string~
+        -_parallelize_processing(excel_files, file_cache) Dict~string,Dict~
+        -_thread_worker(file, factory, cache) Dict~string,Any~
+        -_handle_file_error(file_name, error) Dict~string,Any~
+    }
+    
+    %% API Functions
+    class process_single_file {
+        <<function>>
+        +process_single_file(input_file, output_file, config) Dict~string,Any~
+    }
+    
+    class process_multi_sheet {
+        <<function>>
+        +process_multi_sheet(input_file, output_file, sheet_names, config) Dict~string,Any~
+    }
+    
+    class process_batch {
+        <<function>>
+        +process_batch(input_dir, output_dir, config) Dict~string,Any~
+    }
+    
+    %% Output Components
+    class OutputFormatter {
+        -include_structure_metadata bool
+        +format_output(metadata, data, sheet_name) Dict~string,Any~
+        +format_multi_sheet_output(sheets_data) Dict~string,Any~
+        +format_batch_summary(batch_results) Dict~string,Any~
+    }
+    
+    class OutputWriter {
+        -indent int
+        -ensure_ascii bool
+        +write_json(data, output_file) void
+        +write_batch_results(batch_results, output_dir, summary_file) void
+    }
+    
+    %% Utility Classes
+    class FileCache {
+        -cache_dir str
+        -max_age_seconds float
+        +get(file_path) Tuple~bool,Any~
+        +set(file_path, result) void
+        +invalidate(file_path) void
+        +clear_old_entries(max_age_days) int
+        -get_file_hash(file_path) str
+        -get_cache_path(file_path, file_hash) str
+    }
+    
+    %% Interface Implementation Relationships
+    ExcelReaderInterface <|.. OpenpyxlReader
+    ExcelReaderInterface <|.. PandasReader
+    ExcelReaderInterface <|.. LegacyReaderAdapter
+    
+    SheetAccessorInterface <|.. OpenpyxlSheetAccessor
+    SheetAccessorInterface <|.. PandasSheetAccessor
+    SheetAccessorInterface <|.. LegacySheetAdapter
+    
+    %% Strategy Pattern Relationships
+    ExcelAccessStrategy <|-- OpenpyxlStrategy
+    ExcelAccessStrategy <|-- PandasStrategy
+    ExcelAccessStrategy <|-- FallbackStrategy
+    
+    %% Factory Relationships
+    StrategyFactory --> ExcelAccessStrategy : manages
+    OpenpyxlStrategy --> OpenpyxlReader : creates
+    PandasStrategy --> PandasReader : creates
+    FallbackStrategy --> "FallbackReader" : creates
+    
+    OpenpyxlReader --> OpenpyxlSheetAccessor : creates
+    PandasReader --> PandasSheetAccessor : creates
+    LegacyReaderAdapter --> LegacySheetAdapter : creates
+    
+    %% Core Processing Relationships
+    StructureAnalyzer --> SheetAccessorInterface : uses
+    DataExtractor --> SheetAccessorInterface : uses
+    
+    %% Workflow Class Hierarchy
+    BaseWorkflow <|-- SingleFileWorkflow
+    BaseWorkflow <|-- MultiSheetWorkflow
+    BaseWorkflow <|-- BatchWorkflow
+    
+    %% Workflow Implementation Relationships
+    SingleFileWorkflow --> StrategyFactory : creates and uses
+    SingleFileWorkflow --> StructureAnalyzer : uses
+    SingleFileWorkflow --> DataExtractor : uses
+    SingleFileWorkflow --> OutputFormatter : uses
+    SingleFileWorkflow --> OutputWriter : uses
+    
+    MultiSheetWorkflow --> StrategyFactory : creates and uses
+    MultiSheetWorkflow --> StructureAnalyzer : uses via _process_sheet
+    MultiSheetWorkflow --> DataExtractor : uses via _process_sheet
+    MultiSheetWorkflow --> OutputFormatter : uses
+    MultiSheetWorkflow --> OutputWriter : uses
+    
+    BatchWorkflow --> StrategyFactory : creates and uses
+    BatchWorkflow --> FileCache : uses
+    BatchWorkflow ..> process_single_file : delegates to
+    BatchWorkflow --> OutputFormatter : uses
+    BatchWorkflow --> OutputWriter : uses
+    
+    %% API Function Relationships
+    process_single_file --> SingleFileWorkflow : instantiates
+    process_multi_sheet --> MultiSheetWorkflow : instantiates
+    process_batch --> BatchWorkflow : instantiates
+    
+    %% Note the critical relationships
+    note for MultiSheetWorkflow "Critical modification:\nMust use interfaces for sheet access"
+    note for BatchWorkflow "Critical modification:\nMust create a strategy factory instance\nfor each file or use thread-local storage"

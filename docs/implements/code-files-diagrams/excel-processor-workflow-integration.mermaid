@@ -1,0 +1,162 @@
+flowchart TD
+    %% Main Entry Points
+    subgraph API ["Public API Functions"]
+        process_single["process_single_file()"]
+        process_multi["process_multi_sheet()"]
+        process_batch["process_batch()"]
+    end
+    
+    %% Workflow Components
+    subgraph WF ["Workflow Components"]
+        subgraph WF_Base ["BaseWorkflow"]
+            Base_run["run()"]
+            Base_execute["execute() *abstract*"]
+            Base_validate["validate_config() *abstract*"]
+            Base_reporter["_create_reporter()"]
+        end
+        
+        subgraph WF_Single ["SingleFileWorkflow"]
+            Single_execute["execute()"]
+            Single_validate["validate_config()"]
+        end
+        
+        subgraph WF_Multi ["MultiSheetWorkflow"]
+            Multi_execute["execute()"]
+            Multi_validate["validate_config()"]
+            Multi_process_sheet["_process_sheet()"]
+            Multi_consolidate["_consolidate_sheets()"]
+        end
+        
+        subgraph WF_Batch ["BatchWorkflow"]
+            Batch_execute["execute()"]
+            Batch_validate["validate_config()"]
+            Batch_process_file["_process_file()"]
+            Batch_find_files["_find_excel_files()"]
+            Batch_parallelize["_parallelize_processing()"]
+            Batch_thread_worker["_thread_worker()"]
+        end
+    end
+    
+    %% IO Component Integration
+    subgraph SF ["StrategyFactory"]
+        SF_create["create_reader()"]
+        SF_register["register_strategy()"]
+        SF_optimal["determine_optimal_strategy()"]
+        SF_complex["_check_complex_structure()"]
+    end
+    
+    %% Core Components
+    subgraph Core ["Core Processing"]
+        Structure["StructureAnalyzer"]
+        Extractor["DataExtractor"]
+    end
+    
+    %% Output Components
+    subgraph Output ["Output Processing"]
+        Formatter["OutputFormatter"]
+        Writer["OutputWriter"]
+    end
+    
+    %% Utility Components
+    subgraph Utils ["Utilities"]
+        Cache["FileCache"]
+        Reporter["ProgressReporter"]
+    end
+    
+    %% Interface Layer
+    subgraph IO_Int ["Interfaces"]
+        Reader_Int["ExcelReaderInterface"]
+        Sheet_Int["SheetAccessorInterface"]
+        Cell_Int["CellValueExtractorInterface"]
+    end
+    
+    %% Multi-Sheet Specific Integration
+    subgraph MS_Int ["Multi-Sheet Integration"]
+        MS_Reader["1. Create single reader instance"]
+        MS_Sheets["2. Get all sheet names"]
+        MS_Iterate["3. Iterate through sheets"]
+        MS_Access["4. Get sheet accessor for each sheet"]
+        MS_Process["5. Process each sheet independently"]
+        MS_Combine["6. Combine results with cross-references"]
+    end
+    
+    %% Batch Specific Integration
+    subgraph Batch_Int ["Batch Integration"]
+        B_Find["1. Find all Excel files in directory"]
+        B_Decision["2. Decide on parallel vs. sequential"]
+        B_Cache["3. Check cache for each file"]
+        B_Factory["4. Create reader for each file"]
+        B_Process["5. Process files with appropriate reader"]
+        B_Thread["6. Coordinate thread-safe access"]
+        B_Summary["7. Aggregate results with statistics"]
+    end
+    
+    %% Inheritance Relationships
+    Base_execute -.-> Single_execute & Multi_execute & Batch_execute
+    Base_validate -.-> Single_validate & Multi_validate & Batch_validate
+    
+    %% API to Workflow Relationships
+    process_single --> Single_execute
+    process_multi --> Multi_execute
+    process_batch --> Batch_execute
+    
+    %% Workflow Integration Points with Strategy Factory
+    Single_execute --> SF_create
+    Multi_execute --> SF_create
+    Batch_process_file --> SF_create
+    
+    %% Multi-Sheet Integration Points
+    Multi_execute --> MS_Reader
+    MS_Reader --> SF_create
+    MS_Reader --> Reader_Int
+    Multi_execute --> MS_Sheets
+    MS_Sheets --> Reader_Int
+    Multi_execute --> MS_Iterate
+    MS_Iterate --> Multi_process_sheet
+    Multi_process_sheet --> MS_Access
+    MS_Access --> Reader_Int
+    Multi_process_sheet --> MS_Process
+    MS_Process --> Structure & Extractor
+    Multi_execute --> MS_Combine
+    MS_Combine --> Formatter
+    
+    %% Batch Integration Points
+    Batch_execute --> B_Find
+    B_Find --> Batch_find_files
+    Batch_execute --> B_Decision
+    B_Decision --> Batch_parallelize
+    Batch_parallelize --> Batch_thread_worker
+    Batch_thread_worker --> Batch_process_file
+    Batch_process_file --> B_Cache
+    B_Cache --> Cache
+    Batch_process_file --> B_Factory
+    B_Factory --> SF_create
+    Batch_process_file --> B_Process
+    B_Process --> process_single
+    Batch_execute --> B_Summary
+    B_Summary --> Formatter
+    
+    %% Core Component Integration
+    Structure & Extractor --> Sheet_Int
+    
+    %% Output Integration
+    Single_execute & Multi_execute & Batch_execute --> Formatter
+    Single_execute & Multi_execute & Batch_execute --> Writer
+    
+    %% Style Classes
+    classDef api fill:#f9a8d4,stroke:#333,stroke-width:1px
+    classDef workflow fill:#c4b5fd,stroke:#333,stroke-width:2px
+    classDef io fill:#93c5fd,stroke:#333,stroke-width:1px
+    classDef core fill:#fca5a5,stroke:#333,stroke-width:1px
+    classDef output fill:#fcd34d,stroke:#333,stroke-width:1px
+    classDef utils fill:#a7f3d0,stroke:#333,stroke-width:1px
+    classDef integration fill:#e5e7eb,stroke:#333,stroke-width:1px,stroke-dasharray: 5 5
+    
+    %% Apply Styles
+    class API,process_single,process_multi,process_batch api
+    class WF,WF_Base,WF_Single,WF_Multi,WF_Batch,Base_run,Base_execute,Base_validate,Base_reporter,Single_execute,Single_validate,Multi_execute,Multi_validate,Multi_process_sheet,Multi_consolidate,Batch_execute,Batch_validate,Batch_process_file,Batch_find_files,Batch_parallelize,Batch_thread_worker workflow
+    class SF,SF_create,SF_register,SF_optimal,SF_complex,IO_Int,Reader_Int,Sheet_Int,Cell_Int io
+    class Core,Structure,Extractor core
+    class Output,Formatter,Writer output
+    class Utils,Cache,Reporter utils
+    class MS_Int,MS_Reader,MS_Sheets,MS_Iterate,MS_Access,MS_Process,MS_Combine,Batch_Int,B_Find,B_Decision,B_Cache,B_Factory,B_Process,B_Thread,B_Summary integration

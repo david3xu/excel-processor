@@ -52,12 +52,14 @@ class StructureAnalyzer:
         logger.info(f"Analyzing structure of sheet: {sheet_name}")
         
         try:
-            # Get sheet dimensions
+            # Get sheet dimensions using accessor interface
+            min_row, max_row, min_col, max_col = sheet.get_dimensions()
+            
             dimensions = SheetDimensions(
-                min_row=1,
-                max_row=sheet.max_row,
-                min_column=1,
-                max_column=sheet.max_column
+                min_row=min_row,
+                max_row=max_row,
+                min_column=min_col,
+                max_column=max_col
             )
             
             # Create sheet structure with dimensions
@@ -107,29 +109,34 @@ class StructureAnalyzer:
             merge_map = {}
             merged_cells = []
             
-            logger.debug(f"Building merge map for sheet: {sheet.title}")
-            logger.debug(f"Sheet has {len(sheet.merged_cells.ranges)} merged ranges")
+            # Use the accessor interface method to get merged regions
+            merged_regions = sheet.get_merged_regions()
+            logger.debug(f"Building merge map for sheet: {sheet.title}") # Assuming accessor has title
+            logger.debug(f"Sheet has {len(merged_regions)} merged regions")
             
-            for merged_range in sheet.merged_cells.ranges:
+            # Iterate over the regions provided by the accessor
+            for region_bounds in merged_regions:
+                min_row, min_col, max_row, max_col = region_bounds
+                
                 # Create CellRange for this merged range
                 cell_range = CellRange(
-                    start=CellPosition(row=merged_range.min_row, column=merged_range.min_col),
-                    end=CellPosition(row=merged_range.max_row, column=merged_range.max_col)
+                    start=CellPosition(row=min_row, column=min_col),
+                    end=CellPosition(row=max_row, column=max_col)
                 )
                 
-                # Find the value from the top-left cell
-                top_value = sheet.cell(merged_range.min_row, merged_range.min_col).value
+                # Find the value from the top-left cell using the accessor
+                top_value = sheet.get_cell_value(min_row, min_col)
                 
                 # Create MergedCell instance
                 merged_cell = MergedCell(range=cell_range, value=top_value)
                 merged_cells.append(merged_cell)
                 
                 # Record this merge in our map
-                for row in range(merged_range.min_row, merged_range.max_row + 1):
-                    for col in range(merged_range.min_col, merged_range.max_col + 1):
+                for row in range(min_row, max_row + 1):
+                    for col in range(min_col, max_col + 1):
                         merge_map[(row, col)] = {
                             'value': top_value,
-                            'origin': (merged_range.min_row, merged_range.min_col),
+                            'origin': (min_row, min_col),
                             'range': cell_range.to_excel_notation()
                         }
             
@@ -167,33 +174,40 @@ class StructureAnalyzer:
             
             metadata = Metadata()
             metadata_rows = 0
-            max_row = sheet.max_row
-            max_col = sheet.max_column
+            
+            # Get dimensions using accessor interface
+            _, max_row, _, max_col = sheet.get_dimensions()
             
             # Create a section for headers (large merged cells at the top)
             header_section = MetadataSection(name="headers")
             
+            # Use accessor method to get merged regions
+            merged_regions = sheet.get_merged_regions()
+            
             # Check for potential metadata header sections (large merged cells at the top)
-            for merged_range in sheet.merged_cells.ranges:
+            for region_bounds in merged_regions:
+                min_row, min_col, max_row, max_col = region_bounds
+                
                 # If there's a merged region at the top spanning multiple columns
-                if (merged_range.min_row <= 3 and  # In first few rows
-                    (merged_range.max_col - merged_range.min_col + 1) > 2):  # Spans several columns
+                if (min_row <= 3 and  # In first few rows
+                    (max_col - min_col + 1) > 2):  # Spans several columns
                     
-                    metadata_value = sheet.cell(merged_range.min_row, merged_range.min_col).value
+                    # Use accessor to get cell value
+                    metadata_value = sheet.get_cell_value(min_row, min_col)
                     if metadata_value:
-                        key = f"header_r{merged_range.min_row}"
+                        key = f"header_r{min_row}"
                         item = MetadataItem(
                             key=key,
                             value=metadata_value,
-                            row=merged_range.min_row,
-                            column=merged_range.min_col,
-                            source_range=openpyxl.utils.cells.range_boundaries_to_str(
-                                merged_range.min_col, merged_range.min_row,
-                                merged_range.max_col, merged_range.max_row
-                            )
+                            row=min_row,
+                            column=min_col,
+                            source_range=CellRange(
+                                start=CellPosition(row=min_row, column=min_col),
+                                end=CellPosition(row=max_row, column=max_col)
+                            ).to_excel_notation() # Generate range string
                         )
                         header_section.add_item(item)
-                        metadata_rows = max(metadata_rows, merged_range.max_row)
+                        metadata_rows = max(metadata_rows, max_row)
             
             # Add header section if it has items
             if header_section.items:
@@ -221,15 +235,15 @@ class StructureAnalyzer:
                     if (row, col) in merge_map:
                         value = merge_map[(row, col)]['value']
                     else:
-                        cell = sheet.cell(row, col)
-                        if cell.value is not None:
-                            value = cell.value
+                        # Use accessor to get cell value
+                        value = sheet.get_cell_value(row, col)
                     
                     if value is not None:
                         # Try to get column header from first row if this is not the first row
                         col_header = None
                         if row > 1:
-                            col_header = sheet.cell(1, col).value
+                            # Use accessor to get potential header value
+                            col_header = sheet.get_cell_value(1, col)
                         
                         # Use column header or column letter
                         key = col_header if col_header else openpyxl.utils.get_column_letter(col)
@@ -283,30 +297,38 @@ class StructureAnalyzer:
         try:
             logger.info(f"Identifying header row in sheet: {sheet.title}")
             
-            max_row = sheet.max_row
-            max_col = sheet.max_column
+            # Get dimensions using the accessor
+            _, max_row, _, max_col = sheet.get_dimensions()
             
             # Start looking for header from the row after metadata
             data_start_row = metadata_rows + 1
             
-            # Look for a clear header row (typically follows metadata and has values across columns)
+            # Look for the first row after metadata that looks like a header
             for row in range(data_start_row, min(data_start_row + 5, max_row + 1)):
-                values_in_row = 0
-                
+                row_values_count = 0
+                # Check cells in this row
                 for col in range(1, max_col + 1):
+                    # Check if the cell is the start of a merged region in this row
+                    is_merged_origin = False
                     if (row, col) in merge_map:
-                        if merge_map[(row, col)]['value'] is not None:
-                            values_in_row += 1
-                    elif sheet.cell(row, col).value is not None:
-                        values_in_row += 1
+                        if merge_map[(row, col)]['origin'] == (row, col):
+                            is_merged_origin = True
+                    
+                    # Get cell value only if it's not merged or is the origin of a merge
+                    cell_value = None
+                    if not (row, col) in merge_map or is_merged_origin:
+                        cell_value = sheet.get_cell_value(row, col)
+                    
+                    if cell_value is not None and str(cell_value).strip():
+                        row_values_count += 1
                 
-                # If we find a row with several populated cells, it's likely a header
+                # If we find a row with several populated cells, consider it the header
                 threshold = max(header_threshold, max_col / 3)
-                if values_in_row > threshold:  # Either header_threshold or 1/3 of columns have values
+                if row_values_count >= threshold:
                     logger.info(f"Identified header row: {row}")
                     return row
             
-            # If no clear header found, use the row after metadata
+            # If no clear header found, fallback to the row after metadata
             logger.info(f"No clear header found, using row after metadata: {data_start_row}")
             return data_start_row
         except Exception as e:

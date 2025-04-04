@@ -120,6 +120,9 @@ def args_to_config(args: argparse.Namespace) -> ExcelProcessorConfig:
         config.sheet_name = args.sheet
         config.metadata_max_rows = args.metadata_rows
         config.include_empty_cells = args.include_empty
+        # Unset conflicting directory args
+        config.input_dir = None
+        config.output_dir = None
     elif args.command == "multi":
         config.input_file = args.input
         config.output_file = args.output
@@ -127,6 +130,9 @@ def args_to_config(args: argparse.Namespace) -> ExcelProcessorConfig:
             config.sheet_names = args.sheets
         config.metadata_max_rows = args.metadata_rows
         config.include_empty_cells = args.include_empty
+        # Unset conflicting directory args
+        config.input_dir = None
+        config.output_dir = None
     elif args.command == "batch":
         config.input_dir = args.input_dir
         config.output_dir = args.output_dir
@@ -134,6 +140,9 @@ def args_to_config(args: argparse.Namespace) -> ExcelProcessorConfig:
         config.cache_dir = args.cache_dir
         config.parallel_processing = args.parallel
         config.max_workers = args.workers
+        # Unset conflicting file args
+        config.input_file = None
+        config.output_file = None
     
     # Update log settings
     config.log_level = args.log_level

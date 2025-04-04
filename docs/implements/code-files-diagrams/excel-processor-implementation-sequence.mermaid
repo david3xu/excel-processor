@@ -1,0 +1,121 @@
+sequenceDiagram
+    %% Participants in the conversion process
+    participant MW as MultiSheetWorkflow
+    participant B as BatchWorkflow
+    participant SF as StrategyFactory
+    participant R as ExcelReader (Interface)
+    participant SA as Sheet Accessor (Interface)
+    participant ST as Structure Analyzer
+    participant DE as Data Extractor
+    participant OF as Output Formatter
+    participant OW as Output Writer
+    
+    %% Multi-sheet processing sequence
+    Note over MW: MultiSheetWorkflow.execute()
+    MW->>SF: create_reader(input_file)
+    SF-->>MW: reader instance
+    MW->>R: open_workbook()
+    MW->>R: get_sheet_names()
+    R-->>MW: sheet_names
+    
+    %% Process individual sheets
+    Note over MW: For each sheet in sheet_names
+    MW->>MW: _process_sheet(reader, sheet_name)
+    MW->>R: get_sheet_accessor(sheet_name)
+    R-->>MW: sheet_accessor
+    MW->>ST: analyze_sheet(sheet_accessor)
+    ST->>SA: get_dimensions()
+    ST->>SA: get_merged_regions()
+    ST-->>MW: sheet_structure
+    MW->>ST: detect_metadata_and_header(sheet_accessor)
+    ST->>SA: get_cell_value() (for metadata)
+    ST-->>MW: metadata_detection_result
+    MW->>DE: extract_data(sheet_accessor, detection_result.data_start_row, chunk_size)
+    DE->>SA: get_row_values(header_row)
+    DE->>SA: iterate_rows(data_start_row)
+    loop For each chunk of rows
+        SA-->>DE: row_data chunk
+        DE->>DE: _process_row() for each row
+    end
+    DE-->>MW: hierarchical_data
+    MW->>OF: format_output(metadata, hierarchical_data, sheet_name)
+    OF-->>MW: formatted_sheet_result
+    Note over MW: Add to sheets_data dictionary
+    
+    %% Complete multi-sheet processing
+    MW->>OF: format_multi_sheet_output(sheets_data)
+    OF-->>MW: multi_sheet_result
+    MW->>OW: write_json(multi_sheet_result, output_file)
+    OW-->>MW: Success
+    MW->>R: close_workbook()
+    Note over MW: Return result dictionary
+    
+    %% Batch processing sequence
+    Note over B: BatchWorkflow.execute()
+    B->>B: _find_excel_files(input_dir)
+    B-->>B: excel_files list
+    
+    %% Parallel processing decision
+    alt parallel_processing enabled
+        B->>B: _parallelize_processing(excel_files)
+        Note over B: Create thread pool with max_workers
+        
+        par Process files in parallel
+            loop For each excel_file with thread pool
+                B->>B: _process_file(excel_file, file_cache)
+                alt use_cache enabled
+                    B->>+FileCache: get(excel_file)
+                    FileCache-->>-B: cache_hit, cached_result
+                    alt cache hit
+                        Note over B: Use cached result
+                    else cache miss
+                        Note over B: Process the file
+                        B->>SF: create_reader(excel_file)
+                        SF-->>B: reader_instance
+                        B->>process_single_file: process with reader
+                        process_single_file-->>B: result
+                        B->>FileCache: set(excel_file, result)
+                    end
+                else
+                    Note over B: Process without cache
+                    B->>SF: create_reader(excel_file)
+                    SF-->>B: reader_instance
+                    B->>process_single_file: process with reader
+                    process_single_file-->>B: result
+                end
+                Note over B: Add to batch_results
+            end
+        end
+    else sequential processing
+        loop For each excel_file
+            B->>B: _process_file(excel_file, file_cache)
+            alt use_cache enabled
+                B->>+FileCache: get(excel_file)
+                FileCache-->>-B: cache_hit, cached_result
+                alt cache hit
+                    Note over B: Use cached result
+                else cache miss
+                    Note over B: Process the file
+                    B->>SF: create_reader(excel_file)
+                    SF-->>B: reader_instance
+                    B->>process_single_file: process with reader
+                    process_single_file-->>B: result
+                    B->>FileCache: set(excel_file, result)
+                end
+            else
+                Note over B: Process without cache
+                B->>SF: create_reader(excel_file)
+                SF-->>B: reader_instance
+                B->>process_single_file: process with reader
+                process_single_file-->>B: result
+            end
+            Note over B: Add to batch_results
+        end
+    end
+    
+    %% Complete batch processing
+    B->>OF: format_batch_summary(batch_results)
+    OF-->>B: batch_summary
+    B->>OW: write_json(batch_summary, summary_file)
+    OW-->>B: Success
+    Note over B: Return result dictionary

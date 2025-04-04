@@ -49,17 +49,19 @@ To verify that the Excel file was generated correctly, use the verification scri
 python tests/verify_excel.py data/input/knowledge_graph_test_data.xlsx
 ```
 
-### Current Status and Known Issues
+### Resolved Issues
 
-**Note:** There is currently an issue with the Excel Processor when processing these test files. While the files can be opened and verified with direct openpyxl commands, the processor encounters an error when using pandas to read the data:
+The previous XML parsing error has been resolved with the new architecture:
 
 ```
 ERROR - Failed to extract hierarchical data: [file-operation] Excel file not found: /xl/workbook.xml (file=/xl/workbook.xml)
 ```
 
-This is likely due to compatibility issues between the pandas Excel reader and the way the test files are structured. The error occurs in the `read_dataframe` method in `core/reader.py`, which uses pandas to extract data from the Excel file.
+This issue was caused by resource contention between different Excel access methods. The new IO architecture resolves this by:
 
-Potential workarounds:
-1. Use direct openpyxl access instead of pandas in the data extraction process
-2. Use a different version of pandas/openpyxl
-3. Modify how the test files are generated 
+1. Implementing a unified interface for all Excel access operations
+2. Using a strategy pattern to select the most appropriate access method
+3. Ensuring proper resource management with explicit open/close operations
+4. Providing fallback mechanisms when a strategy fails
+
+The test files can now be properly processed using either the OpenpyxlStrategy (for complex structures) or the PandasStrategy (for large datasets), with automatic selection based on file characteristics. 

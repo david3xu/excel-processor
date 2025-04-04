@@ -1,0 +1,194 @@
+flowchart TD
+    %% Main optimization categories
+    subgraph MemoryMgmt ["Memory Management Optimizations"]
+        Chunking["Chunked Processing
+        - Configure chunk_size for rows
+        - Only load portions of data in memory
+        - Progressive release of resources"]
+        
+        LazyLoad["Lazy Sheet Loading
+        - Load worksheets on demand
+        - Release worksheet objects when done
+        - Minimize concurrent memory usage"]
+        
+        TypedExtraction["Optimized Type Extraction
+        - Direct value conversion
+        - Avoid intermediate object creation
+        - Specialized extractors per data type"]
+        
+        ResourceLifecycle["Resource Lifecycle Management
+        - Explicit open/close operations
+        - Deterministic resource acquisition
+        - Proper handle cleanup"]
+    end
+    
+    subgraph ParallelOpt ["Parallel Processing Optimizations"]
+        ThreadPool["Thread Pool Executor
+        - Configurable worker count
+        - CPU-bound parallelism
+        - Concurrent file processing"]
+        
+        ThreadSafety["Thread Safety Mechanisms
+        - Thread-local strategy factories
+        - Isolated reader instances per thread
+        - Non-blocking file access"]
+        
+        WorkDistribution["Work Distribution
+        - File characteristic-based balancing
+        - Size-ordered processing queue
+        - Progress monitoring with completion events"]
+        
+        ResourcePooling["Resource Pooling
+        - Strategy instance reuse when appropriate
+        - Connection pooling for network resources
+        - Coordinated allocation/deallocation"]
+    end
+    
+    subgraph CacheOpt ["Caching Optimizations"]
+        FileHashing["File Hash-Based Caching
+        - MD5 hashing for change detection
+        - Skip unchanged files
+        - Intelligent cache invalidation"]
+        
+        TTLMgmt["Time-to-Live Management
+        - Configurable cache expiration
+        - Automatic cache cleanup
+        - Age-based eviction policy"]
+        
+        SerializedCache["Serialized Result Storage
+        - Python pickle for persistence
+        - Metadata preservation
+        - Type-aware deserialization"]
+        
+        CacheDecision["Cache Decision Heuristics
+        - File size thresholds
+        - Complexity metrics
+        - Processing time history"]
+    end
+    
+    subgraph StrategyOpt ["Strategy Optimization Techniques"]
+        FileCharAnalysis["File Characteristic Analysis
+        - Size-based strategy selection
+        - Structure complexity detection
+        - Format version identification"]
+        
+        DynamicSelection["Dynamic Strategy Selection
+        - Preferred strategy configuration
+        - Capability-based matching
+        - Progressive fallback chain"]
+        
+        SpecializedImpl["Specialized Implementations
+        - openpyxl for complex structures
+        - pandas for large regular datasets
+        - fallback for problematic files"]
+        
+        CapabilityReporting["Capability Reporting
+        - Feature support matrix
+        - Performance characteristic reporting
+        - Memory footprint estimation"]
+    end
+    
+    %% Multi-Sheet Specific Optimizations
+    subgraph MultiSheetOpt ["Multi-Sheet Optimizations"]
+        ReaderReuse["Single Reader Instance
+        - Create reader once per file
+        - Reuse across all sheets
+        - Minimize file handle operations"]
+        
+        SheetPrioritization["Sheet Prioritization
+        - Process critical sheets first
+        - Optional sheet filtering
+        - Early error detection"]
+        
+        CrossRefOptimization["Cross-Reference Optimization
+        - Shared lookup table generation
+        - Reference resolution optimization
+        - Memory-efficient relationship tracking"]
+        
+        IncrementalProcessing["Incremental Processing
+        - Process and release each sheet
+        - Intermediate result persistence
+        - Resumable processing"]
+    end
+    
+    %% Batch Specific Optimizations
+    subgraph BatchOpt ["Batch Processing Optimizations"]
+        FileSorting["Intelligent File Sorting
+        - Size-based sorting
+        - Complexity-based prioritization
+        - Dependency-aware ordering"]
+        
+        ConcurrentStreams["Concurrent Stream Management
+        - Controlled parallelism degree
+        - I/O vs CPU balance monitoring
+        - Adaptive concurrency throttling"]
+        
+        ProgressiveResults["Progressive Result Generation
+        - Incremental summary updates
+        - Partial result availability
+        - Non-blocking result aggregation"]
+        
+        ErrorIsolation["Processing Error Isolation
+        - Continued processing despite errors
+        - Per-file error encapsulation
+        - Comprehensive error reporting"]
+    end
+    
+    %% Implementation Categories
+    subgraph MultiSheetImpl ["Implementation in MultiSheetWorkflow"]
+        MSW_ReaderImpl["_create_reader()
+        - Creates optimal reader once for all sheets
+        - Handles file access setup
+        - Configures optimal access properties"]
+        
+        MSW_ProcessSheet["_process_sheet(reader, sheet_name)
+        - Gets sheet accessor from existing reader
+        - Processes single sheet with structured error handling
+        - Releases sheet-specific resources"]
+        
+        MSW_Execute["execute()
+        - Orchestrates sheet processing
+        - Manages combined result structure
+        - Handles cross-sheet relationships"]
+    end
+    
+    subgraph BatchImpl ["Implementation in BatchWorkflow"]
+        BW_ProcessFile["_process_file(excel_file, file_cache)
+        - Checks cache with file hashing
+        - Creates per-file strategy factory
+        - Processes file with appropriate reader"]
+        
+        BW_ThreadWorker["_thread_worker(file, factory, cache)
+        - Thread-safe processing function
+        - Isolated exception handling
+        - Result capturing for aggregation"]
+        
+        BW_Parallelize["_parallelize_processing(excel_files)
+        - Creates thread pool with configured size
+        - Submits file processing tasks
+        - Collects results as they complete"]
+        
+        BW_Execute["execute()
+        - Finds all target files
+        - Determines sequential vs parallel
+        - Orchestrates batch processing workflow"]
+    end
+    
+    %% Key relationships
+    MultiSheetOpt --> MultiSheetImpl
+    MemoryMgmt & StrategyOpt --> MultiSheetImpl
+    
+    BatchOpt --> BatchImpl
+    MemoryMgmt & ParallelOpt & CacheOpt & StrategyOpt --> BatchImpl
+    
+    %% Style definitions
+    classDef optimizationCategory fill:#d1fae5,stroke:#047857,stroke-width:1px
+    classDef multiSheetOpt fill:#dbeafe,stroke:#1e40af,stroke-width:1px
+    classDef batchOpt fill:#fce7f3,stroke:#9d174d,stroke-width:1px
+    classDef implementation fill:#e5e7eb,stroke:#1f2937,stroke-width:1px
+    
+    %% Apply styles
+    class MemoryMgmt,ParallelOpt,CacheOpt,StrategyOpt optimizationCategory
+    class MultiSheetOpt multiSheetOpt
+    class BatchOpt batchOpt
+    class MultiSheetImpl,BatchImpl implementation

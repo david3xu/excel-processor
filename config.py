@@ -23,7 +23,7 @@ class ExcelProcessorConfig:
     input_file: Optional[str] = None
     output_file: Optional[str] = None
     input_dir: Optional[str] = "data/input"  # Default input directory
-    output_dir: Optional[str] = "data/output/batch"  # Default output directory
+    output_dir: Optional[str] = "data/output"  # Default output directory for batch
     
     # Sheet settings
     sheet_name: Optional[str] = None
@@ -35,6 +35,12 @@ class ExcelProcessorConfig:
     include_empty_cells: bool = False
     chunk_size: int = 1000
     
+    # Data access strategy settings
+    preferred_strategy: str = "auto"  # auto, openpyxl, pandas, fallback
+    enable_fallback: bool = True
+    large_file_threshold_mb: int = 50
+    complex_structure_detection: bool = True
+    
     # Batch processing settings
     use_cache: bool = True
     cache_dir: str = "data/cache"  # Updated cache directory
@@ -43,7 +49,7 @@ class ExcelProcessorConfig:
     
     # Logging settings
     log_level: str = "info"
-    log_file: str = "excel_processing.log"
+    log_file: str = "data/logs/excel_processing.log"
     log_to_console: bool = True
     
     def validate(self) -> None:
@@ -111,6 +117,23 @@ class ExcelProcessorConfig:
                 "max_workers must be at least 1",
                 param_name="max_workers",
                 param_value=self.max_workers,
+            )
+            
+        # Validate large_file_threshold_mb
+        if self.large_file_threshold_mb < 1:
+            raise ConfigurationError(
+                "large_file_threshold_mb must be at least 1",
+                param_name="large_file_threshold_mb",
+                param_value=self.large_file_threshold_mb,
+            )
+            
+        # Validate preferred_strategy
+        valid_strategies = {"auto", "openpyxl", "pandas", "fallback"}
+        if self.preferred_strategy.lower() not in valid_strategies:
+            raise ConfigurationError(
+                f"preferred_strategy must be one of {valid_strategies}",
+                param_name="preferred_strategy",
+                param_value=self.preferred_strategy,
             )
             
         # Validate log level
@@ -265,3 +288,21 @@ def get_config(
     config.validate()
     
     return config
+
+
+def get_data_access_config(config: ExcelProcessorConfig) -> Dict[str, Any]:
+    """
+    Extract data access configuration from the main configuration.
+    
+    Args:
+        config: Main excel processor configuration
+        
+    Returns:
+        Dictionary containing data access configuration options
+    """
+    return {
+        "preferred_strategy": config.preferred_strategy,
+        "enable_fallback": config.enable_fallback,
+        "large_file_threshold_mb": config.large_file_threshold_mb,
+        "complex_structure_detection": config.complex_structure_detection
+    }

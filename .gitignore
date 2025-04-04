@@ -33,12 +33,14 @@ ENV/
 
 # Excel Processor specific
 data/input/*.xlsx
-data/output/*.json
+# data/output/*.json
 data/cache/*
 !data/input/.gitkeep
-!data/output/.gitkeep
+# !data/output/.gitkeep
 !data/cache/.gitkeep
-excel_processing.log
+/output/*.json
+/data/logs/
+temp_config.json
 
 # Pytest
 .pytest_cache/

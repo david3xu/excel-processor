@@ -1,0 +1,204 @@
+flowchart TD
+    %% Root level files
+    Init["__init__.py"] ----> Main["main.py"]
+    Main --> CLI["cli.py"]
+    CLI --> Config["config.py"]
+    PyProj["pyproject.toml"] -.-> Setup["setup.py"]
+    Req["requirements.txt"] -.-> Setup
+    
+    %% Core package relationships
+    subgraph Core ["core/"]
+        Core_Init["__init__.py"]
+        Core_Reader["reader.py"]
+        Core_Structure["structure.py"]
+        Core_Extractor["extractor.py"]
+        
+        Core_Init --> Core_Reader & Core_Structure & Core_Extractor
+        Core_Reader <--"Being replaced by IO package"--> Core_Extractor
+        Core_Structure <--> Core_Extractor
+    end
+    
+    %% IO package - the new abstraction layer
+    subgraph IO ["io/"]
+        IO_Init["__init__.py"]
+        IO_Interfaces["interfaces.py"]
+        IO_StratFactory["strategy_factory.py"]
+        
+        IO_Init --> IO_Interfaces
+        IO_Init --> IO_StratFactory
+        IO_StratFactory --> IO_Interfaces
+        
+        subgraph IO_Strategies ["strategies/"]
+            Strat_Init["__init__.py"]
+            Strat_Base["base_strategy.py"]
+            Strat_OPXL["openpyxl_strategy.py"]
+            Strat_Pandas["pandas_strategy.py"]
+            Strat_Fallback["fallback_strategy.py"]
+            
+            Strat_Init --> Strat_Base
+            Strat_Base --> Strat_OPXL & Strat_Pandas & Strat_Fallback
+        end
+        
+        subgraph IO_Adapters ["adapters/"]
+            Adapt_Init["__init__.py"]
+            Adapt_Legacy["legacy_adapter.py"]
+            
+            Adapt_Init --> Adapt_Legacy
+        end
+        
+        IO_Init --> Strat_Init
+        IO_Init --> Adapt_Init
+        IO_StratFactory --> Strat_Base
+        IO_Interfaces <-- "implements" --> Strat_OPXL & Strat_Pandas & Strat_Fallback
+        Core_Reader <-- "adapted by" --> Adapt_Legacy
+        Adapt_Legacy --> IO_Interfaces
+    end
+    
+    %% Models package relationships
+    subgraph Models ["models/"]
+        Models_Init["__init__.py"]
+        Models_Excel["excel_structure.py"]
+        Models_Meta["metadata.py"]
+        Models_Hier["hierarchical_data.py"]
+        
+        Models_Init --> Models_Excel & Models_Meta & Models_Hier
+        Models_Excel --> Models_Meta
+        Models_Meta --> Models_Hier
+    end
+    
+    %% Output package relationships
+    subgraph Output ["output/"]
+        Output_Init["__init__.py"]
+        Output_Format["formatter.py"]
+        Output_Writer["writer.py"]
+        
+        Output_Init --> Output_Format & Output_Writer
+        Output_Format --> Output_Writer
+    end
+    
+    %% Utils package relationships
+    subgraph Utils ["utils/"]
+        Utils_Init["__init__.py"]
+        Utils_Cache["caching.py"]
+        Utils_Except["exceptions.py"]
+        Utils_Log["logging.py"]
+        Utils_Prog["progress.py"]
+        
+        Utils_Init --> Utils_Cache & Utils_Except & Utils_Log & Utils_Prog
+        Utils_Cache --> Utils_Log
+        Utils_Except --> Utils_Log
+        Utils_Prog --> Utils_Log
+    end
+    
+    %% Workflows package relationships
+    subgraph Workflows ["workflows/"]
+        WF_Init["__init__.py"]
+        WF_Base["base_workflow.py"]
+        WF_Single["single_file.py"]
+        WF_Multi["multi_sheet.py"]
+        WF_Batch["batch.py"]
+        
+        WF_Init --> WF_Base
+        WF_Base --> WF_Single & WF_Multi & WF_Batch
+    end
+    
+    %% Tests package relationships
+    subgraph Tests ["tests/"]
+        Tests_Verify["verify_excel.py"]
+        
+        subgraph Tests_Gen ["generators/"]
+            Tests_Gen_Excel["generate_test_excel.py"]
+        end
+        
+        subgraph Tests_IO ["io/"]
+            Tests_IO_Init["__init__.py"]
+            Tests_IO_Interf["test_interfaces.py"]
+            Tests_IO_Factory["test_strategy_factory.py"]
+            
+            subgraph Tests_IO_Strat ["strategies/"]
+                Tests_IO_Strat_Init["__init__.py"]
+                Tests_IO_Strat_Base["test_base_strategy.py"]
+                Tests_IO_Strat_OPXL["test_openpyxl_strategy.py"]
+                Tests_IO_Strat_Pandas["test_pandas_strategy.py"]
+                Tests_IO_Strat_Fallback["test_fallback_strategy.py"]
+            end
+            
+            subgraph Tests_IO_Adapt ["adapters/"]
+                Tests_IO_Adapt_Init["__init__.py"]
+                Tests_IO_Adapt_Legacy["test_legacy_adapter.py"]
+            end
+            
+            Tests_IO_Init --> Tests_IO_Interf & Tests_IO_Factory
+            Tests_IO_Init --> Tests_IO_Strat_Init
+            Tests_IO_Init --> Tests_IO_Adapt_Init
+        end
+    end
+    
+    %% Cross-package relationships
+    Main --> Workflows
+    CLI --> Workflows
+    
+    %% Core to IO relationship - critical architectural change
+    Core_Reader <--"Being replaced by"--> IO_StratFactory
+    Core_Structure --> IO_Interfaces
+    Core_Extractor --> IO_Interfaces
+    
+    %% Workflows to Core relationships
+    WF_Single & WF_Multi & WF_Batch --> Core_Structure
+    WF_Single & WF_Multi & WF_Batch --> Core_Extractor
+    
+    %% Workflows to IO relationships - new dependency
+    WF_Single & WF_Multi & WF_Batch --> IO_StratFactory
+    
+    %% Workflows to Output relationships
+    WF_Single & WF_Multi & WF_Batch --> Output_Format
+    WF_Single & WF_Multi & WF_Batch --> Output_Writer
+    
+    %% Core to Models relationships
+    Core_Structure --> Models_Excel
+    Core_Structure --> Models_Meta
+    Core_Extractor --> Models_Excel
+    Core_Extractor --> Models_Hier
+    
+    %% Output to Models relationships
+    Output_Format --> Models_Meta
+    Output_Format --> Models_Hier
+    
+    %% Utils used throughout
+    Utils_Log -.-> Core & IO & Output & Workflows
+    Utils_Except -.-> Core & IO & Output & Workflows
+    Utils_Prog -.-> Workflows
+    Utils_Cache -.-> WF_Batch
+    
+    %% Test relationships
+    Tests_IO_Interf --> IO_Interfaces
+    Tests_IO_Factory --> IO_StratFactory
+    Tests_IO_Strat_Base --> Strat_Base
+    Tests_IO_Strat_OPXL --> Strat_OPXL
+    Tests_IO_Strat_Pandas --> Strat_Pandas
+    Tests_IO_Strat_Fallback --> Strat_Fallback
+    Tests_IO_Adapt_Legacy --> Adapt_Legacy
+    Tests_Verify --> Core_Reader
+    Tests_Gen_Excel --> Core_Reader
+    
+    %% Style definitions
+    classDef rootFiles fill:#e6e6e6,stroke:#333,stroke-width:1px
+    classDef coreFiles fill:#ff9999,stroke:#333,stroke-width:1px
+    classDef ioFiles fill:#99ccff,stroke:#333,stroke-width:1px
+    classDef modelFiles fill:#99ff99,stroke:#333,stroke-width:1px
+    classDef outputFiles fill:#ffcc99,stroke:#333,stroke-width:1px
+    classDef utilFiles fill:#ffff99,stroke:#333,stroke-width:1px
+    classDef workflowFiles fill:#cc99ff,stroke:#333,stroke-width:1px
+    classDef testFiles fill:#ff99ff,stroke:#333,stroke-width:1px
+    classDef initFiles fill:#ffffff,stroke:#333,stroke-width:1px,stroke-dasharray: 5 5
+    
+    %% Apply styles
+    class Init,Main,CLI,Config,PyProj,Setup,Req rootFiles
+    class Core_Reader,Core_Structure,Core_Extractor coreFiles
+    class IO_Interfaces,IO_StratFactory,Strat_Base,Strat_OPXL,Strat_Pandas,Strat_Fallback,Adapt_Legacy ioFiles
+    class Models_Excel,Models_Meta,Models_Hier modelFiles
+    class Output_Format,Output_Writer outputFiles
+    class Utils_Cache,Utils_Except,Utils_Log,Utils_Prog utilFiles
+    class WF_Base,WF_Single,WF_Multi,WF_Batch workflowFiles
+    class Tests_Verify,Tests_Gen_Excel,Tests_IO_Interf,Tests_IO_Factory,Tests_IO_Strat_Base,Tests_IO_Strat_OPXL,Tests_IO_Strat_Pandas,Tests_IO_Strat_Fallback,Tests_IO_Adapt_Legacy testFiles
+    class Core_Init,IO_Init,Strat_Init,Adapt_Init,Models_Init,Output_Init,Utils_Init,WF_Init,Tests_IO_Init,Tests_IO_Strat_Init,Tests_IO_Adapt_Init initFiles

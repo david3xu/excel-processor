@@ -5,10 +5,10 @@ Processes a single Excel file and produces JSON output.
 
 from typing import Any, Dict, Optional
 
-from config import ExcelProcessorConfig
+from config import ExcelProcessorConfig, get_data_access_config
 from core.extractor import DataExtractor
-from core.reader import ExcelReader
 from core.structure import StructureAnalyzer
+from excel_io import StrategyFactory, OpenpyxlStrategy, PandasStrategy, FallbackStrategy
 from output.formatter import OutputFormatter
 from output.writer import OutputWriter
 from utils.exceptions import WorkflowConfigurationError, WorkflowError
@@ -33,6 +33,9 @@ class SingleFileWorkflow(BaseWorkflow):
         """
         super().__init__(config)
         self.validate_config()
+        
+        # Initialize the strategy factory
+        self.strategy_factory = self._create_strategy_factory()
     
     def validate_config(self) -> None:
         """
@@ -48,6 +51,26 @@ class SingleFileWorkflow(BaseWorkflow):
                 param_name="input_file"
             )
     
+    def _create_strategy_factory(self) -> StrategyFactory:
+        """
+        Create and configure the strategy factory.
+        
+        Returns:
+            Configured StrategyFactory instance
+        """
+        # Get data access configuration
+        data_access_config = get_data_access_config(self.config)
+        
+        # Create factory
+        factory = StrategyFactory(data_access_config)
+        
+        # Register strategies in priority order
+        factory.register_strategy(OpenpyxlStrategy())
+        factory.register_strategy(PandasStrategy())
+        factory.register_strategy(FallbackStrategy())
+        
+        return factory
+    
     def execute(self) -> Dict[str, Any]:
         """
         Execute the single file workflow.
@@ -62,7 +85,6 @@ class SingleFileWorkflow(BaseWorkflow):
             logger.info(f"Processing single file: {self.config.input_file}")
             
             # Create components
-            reader = ExcelReader(self.config.input_file)
             structure_analyzer = StructureAnalyzer()
             data_extractor = DataExtractor()
             formatter = OutputFormatter(include_structure_metadata=False)
@@ -71,62 +93,77 @@ class SingleFileWorkflow(BaseWorkflow):
             # Start progress reporting
             self.reporter.start(5, f"Processing {self.config.input_file}")
             
-            # Load workbook
-            reader.load_workbook()
-            self.reporter.update(1, "Loaded workbook")
+            # Create reader using strategy factory
+            reader = self.strategy_factory.create_reader(self.config.input_file)
             
-            # Get sheet to process
-            sheet = reader.get_sheet(self.config.sheet_name)
+            # Open workbook
+            reader.open_workbook()
+            self.reporter.update(1, "Opened workbook")
             
-            # Analyze sheet structure
-            self.reporter.update(2, "Analyzing sheet structure")
-            sheet_structure = structure_analyzer.analyze_sheet(sheet, self.config.sheet_name)
-            
-            # Detect metadata and header
-            self.reporter.update(3, "Detecting metadata and header")
-            detection_result = structure_analyzer.detect_metadata_and_header(
-                sheet,
-                sheet_name=self.config.sheet_name,
-                max_metadata_rows=self.config.metadata_max_rows,
-                header_threshold=self.config.header_detection_threshold
-            )
-            
-            # Extract hierarchical data
-            self.reporter.update(4, "Extracting hierarchical data")
-            hierarchical_data = data_extractor.extract_data(
-                sheet,
-                sheet_structure.merge_map,
-                detection_result.data_start_row,
-                chunk_size=self.config.chunk_size,
-                include_empty=self.config.include_empty_cells
-            )
-            
-            # Format output
-            result = formatter.format_output(
-                detection_result.metadata,
-                hierarchical_data,
-                sheet_name=self.config.sheet_name
-            )
-            
-            # Write output
-            if self.config.output_file:
-                self.reporter.update(5, "Writing output")
-                writer.write_json(result, self.config.output_file)
-            
-            # Finish progress reporting
-            self.reporter.finish("Processing complete")
-            
-            # Return result
-            return {
-                "status": "success",
-                "input_file": self.config.input_file,
-                "output_file": self.config.output_file,
-                "sheet_name": self.config.sheet_name or sheet.title,
-                "metadata_rows": detection_result.metadata.row_count,
-                "data_rows": len(hierarchical_data.records),
-                "data_start_row": detection_result.data_start_row,
-                "merged_cells": len(sheet_structure.merged_cells)
-            }
+            try:
+                # Get sheet accessor
+                sheet_accessor = reader.get_sheet_accessor(self.config.sheet_name)
+                sheet_name = self.config.sheet_name or reader.get_sheet_names()[0]
+                
+                # Analyze sheet structure
+                self.reporter.update(2, "Analyzing sheet structure")
+                sheet_structure = structure_analyzer.analyze_sheet(
+                    sheet_accessor, 
+                    sheet_name
+                )
+                
+                # Detect metadata and header
+                self.reporter.update(3, "Detecting metadata and header")
+                detection_result = structure_analyzer.detect_metadata_and_header(
+                    sheet_accessor,
+                    sheet_name=sheet_name,
+                    max_metadata_rows=self.config.metadata_max_rows,
+                    header_threshold=self.config.header_detection_threshold
+                )
+                
+                # Extract hierarchical data
+                self.reporter.update(4, "Extracting hierarchical data")
+                hierarchical_data = data_extractor.extract_data(
+                    sheet_accessor,
+                    sheet_structure.merge_map,
+                    detection_result.data_start_row,
+                    chunk_size=self.config.chunk_size,
+                    include_empty=self.config.include_empty_cells
+                )
+                
+                # Format output
+                result = formatter.format_output(
+                    detection_result.metadata,
+                    hierarchical_data,
+                    sheet_name=sheet_name
+                )
+                
+                # Write output
+                if self.config.output_file:
+                    self.reporter.update(5, "Writing output")
+                    writer.write_json(result, self.config.output_file)
+                
+                # Finish progress reporting
+                self.reporter.finish("Processing complete")
+                
+                # Return result
+                return {
+                    "status": "success",
+                    "input_file": self.config.input_file,
+                    "output_file": self.config.output_file,
+                    "sheet_name": sheet_name,
+                    "metadata_rows": detection_result.metadata.row_count,
+                    "data_rows": len(hierarchical_data.records),
+                    "data_start_row": detection_result.data_start_row,
+                    "merged_cells": len(sheet_structure.merged_cells),
+                    "strategy_used": self.strategy_factory.determine_optimal_strategy(
+                        self.config.input_file
+                    ).get_strategy_name()
+                }
+            finally:
+                # Ensure workbook is closed
+                reader.close_workbook()
+                
         except Exception as e:
             self.reporter.error(f"Failed to process file: {str(e)}")
             raise WorkflowError(

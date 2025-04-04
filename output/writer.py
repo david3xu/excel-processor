@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 from typing import Any, Dict, Optional
+import datetime
 
 from utils.exceptions import FileWriteError, OutputProcessingError, SerializationError
 from utils.logging import get_logger
@@ -31,6 +32,12 @@ class OutputWriter:
         self.indent = indent
         self.ensure_ascii = ensure_ascii
     
+    def _datetime_serializer(self, obj):
+        """JSON serializer for datetime objects."""
+        if isinstance(obj, (datetime.date, datetime.datetime)):
+            return obj.isoformat()
+        raise TypeError(f"Type {type(obj)} not serializable")
+
     def write_json(self, data: Dict[str, Any], output_file: str) -> None:
         """
         Write data to a JSON file.
@@ -57,7 +64,10 @@ class OutputWriter:
             # Serialize data to JSON
             try:
                 json_data = json.dumps(
-                    data, indent=self.indent, ensure_ascii=self.ensure_ascii
+                    data, 
+                    indent=self.indent, 
+                    ensure_ascii=self.ensure_ascii,
+                    default=self._datetime_serializer
                 )
             except (TypeError, ValueError, OverflowError) as e:
                 error_msg = f"Failed to serialize data to JSON: {str(e)}"

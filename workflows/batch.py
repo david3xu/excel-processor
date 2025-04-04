@@ -4,11 +4,13 @@ Processes multiple Excel files in a directory and produces JSON outputs.
 """
 
 import os
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from config import ExcelProcessorConfig
+from config import ExcelProcessorConfig, get_data_access_config
+from excel_io import StrategyFactory, OpenpyxlStrategy, PandasStrategy, FallbackStrategy
 from output.formatter import OutputFormatter
 from output.writer import OutputWriter
 from utils.caching import FileCache
@@ -18,6 +20,10 @@ from workflows.base_workflow import BaseWorkflow
 from workflows.single_file import process_single_file
 
 logger = get_logger(__name__)
+
+
+# Thread-local storage for strategy factories
+thread_local_storage = threading.local()
 
 
 class BatchWorkflow(BaseWorkflow):
@@ -35,6 +41,9 @@ class BatchWorkflow(BaseWorkflow):
         """
         super().__init__(config)
         self.validate_config()
+        
+        # Create main strategy factory
+        self.strategy_factory = self._create_strategy_factory()
     
     def validate_config(self) -> None:
         """
@@ -56,6 +65,38 @@ class BatchWorkflow(BaseWorkflow):
                 workflow_name="BatchWorkflow",
                 param_name="output_dir"
             )
+    
+    def _create_strategy_factory(self) -> StrategyFactory:
+        """
+        Create and configure the strategy factory.
+        
+        Returns:
+            Configured StrategyFactory instance
+        """
+        # Get data access configuration
+        data_access_config = get_data_access_config(self.config)
+        
+        # Create factory
+        factory = StrategyFactory(data_access_config)
+        
+        # Register strategies in priority order
+        factory.register_strategy(OpenpyxlStrategy())
+        factory.register_strategy(PandasStrategy())
+        factory.register_strategy(FallbackStrategy())
+        
+        return factory
+    
+    def _get_thread_local_factory(self) -> StrategyFactory:
+        """
+        Get thread-local strategy factory for parallel processing.
+        
+        Returns:
+            Thread-local StrategyFactory instance
+        """
+        if not hasattr(thread_local_storage, 'strategy_factory'):
+            thread_local_storage.strategy_factory = self._create_strategy_factory()
+        
+        return thread_local_storage.strategy_factory
     
     def _find_excel_files(self, directory: str) -> List[str]:
         """
@@ -123,18 +164,62 @@ class BatchWorkflow(BaseWorkflow):
         file_stem = os.path.splitext(file_name)[0]
         output_file = os.path.join(self.config.output_dir, f"{file_stem}.json")
         
-        # Process file
-        result = process_single_file(
-            input_file=excel_file,
-            output_file=output_file,
-            config=self.config
-        )
-        
-        # Store in cache if available
-        if file_cache and self.config.use_cache and result.get("status") == "success":
-            file_cache.set(excel_file, result)
-        
-        return result
+        # Process file with direct strategy access if running in parallel
+        if self.config.parallel_processing:
+            try:
+                # Get thread-local factory
+                factory = self._get_thread_local_factory()
+                
+                # Use strategy factory directly
+                reader = factory.create_reader(excel_file)
+                reader.open_workbook()
+                
+                try:
+                    # Create config for single file processing
+                    single_config = ExcelProcessorConfig(
+                        input_file=excel_file,
+                        output_file=output_file
+                    )
+                    
+                    # Copy relevant settings from batch config
+                    single_config.metadata_max_rows = self.config.metadata_max_rows
+                    single_config.header_detection_threshold = self.config.header_detection_threshold
+                    single_config.include_empty_cells = self.config.include_empty_cells
+                    single_config.chunk_size = self.config.chunk_size
+                    
+                    # Process the file using single file workflow but with our reader
+                    from workflows.single_file import SingleFileWorkflow
+                    workflow = SingleFileWorkflow(single_config)
+                    workflow.strategy_factory = factory  # Use our factory
+                    result = workflow.execute()
+                finally:
+                    reader.close_workbook()
+                
+                # Store in cache if available
+                if file_cache and self.config.use_cache and result.get("status") == "success":
+                    file_cache.set(excel_file, result)
+                
+                return result
+            except Exception as e:
+                logger.error(f"Error processing file with direct strategy: {str(e)}")
+                return {
+                    "status": "error",
+                    "error": str(e),
+                    "error_type": e.__class__.__name__
+                }
+        else:
+            # Process file using standard single file processor
+            result = process_single_file(
+                input_file=excel_file,
+                output_file=output_file,
+                config=self.config
+            )
+            
+            # Store in cache if available
+            if file_cache and self.config.use_cache and result.get("status") == "success":
+                file_cache.set(excel_file, result)
+            
+            return result
     
     def execute(self) -> Dict[str, Any]:
         """
@@ -198,8 +283,6 @@ class BatchWorkflow(BaseWorkflow):
                             }
             else:
                 # Process files sequentially
-                logger.info(f"Processing {len(excel_files)} files sequentially")
-                
                 for i, excel_file in enumerate(excel_files):
                     file_name = os.path.basename(excel_file)
                     
@@ -215,24 +298,14 @@ class BatchWorkflow(BaseWorkflow):
                             "error_type": e.__class__.__name__
                         }
             
-            # Format batch summary
-            formatter = OutputFormatter()
-            batch_summary = formatter.format_batch_summary(batch_results)
-            
-            # Write batch summary
-            writer = OutputWriter()
-            summary_file = os.path.join(self.config.output_dir, "processing_summary.json")
-            writer.write_json(batch_summary, summary_file)
-            
-            # Finish progress reporting
-            self.reporter.finish("Processing complete")
-            
-            # Count successes and failures
+            # Generate summary
             success_count = sum(
                 1 for result in batch_results.values() 
                 if result.get("status") == "success"
             )
-            failure_count = len(batch_results) - success_count
+            
+            # Finish progress reporting
+            self.reporter.finish(f"Processing complete: {success_count}/{len(excel_files)} successful")
             
             # Return result
             return {
@@ -242,8 +315,11 @@ class BatchWorkflow(BaseWorkflow):
                 "total_files": len(excel_files),
                 "processed_files": len(batch_results),
                 "success_count": success_count,
-                "failure_count": failure_count,
-                "summary_file": summary_file
+                "failure_count": len(batch_results) - success_count,
+                "file_names": list(batch_results.keys()),
+                "cache_enabled": self.config.use_cache,
+                "parallel_processing": self.config.parallel_processing,
+                "strategies_used": [r.get("strategy_used", "unknown") for r in batch_results.values() if r.get("status") == "success"]
             }
         except Exception as e:
             self.reporter.error(f"Failed to process batch: {str(e)}")
@@ -261,11 +337,11 @@ def process_batch(
     **kwargs: Any
 ) -> Dict[str, Any]:
     """
-    Process multiple Excel files in a directory.
+    Process all Excel files in a directory.
     
     Args:
-        input_dir: Directory containing Excel files
-        output_dir: Directory for JSON output
+        input_dir: Path to the directory containing Excel files
+        output_dir: Path to the output directory for JSON files
         config: Configuration for processing
         **kwargs: Additional configuration parameters
         
@@ -279,16 +355,13 @@ def process_batch(
             output_dir=output_dir,
             **kwargs
         )
-    else:
+    elif input_dir or output_dir:
         # Update existing configuration
-        config.input_dir = input_dir
-        config.output_dir = output_dir
-        
-        # Update with any additional parameters
-        for key, value in kwargs.items():
-            if hasattr(config, key):
-                setattr(config, key, value)
+        if input_dir:
+            config.input_dir = input_dir
+        if output_dir:
+            config.output_dir = output_dir
     
-    # Create and run workflow
+    # Create and execute workflow
     workflow = BatchWorkflow(config)
-    return workflow.run()
+    return workflow.execute()
