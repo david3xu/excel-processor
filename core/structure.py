@@ -298,12 +298,36 @@ class StructureAnalyzer:
             logger.info(f"Identifying header row in sheet: {sheet.title}")
             
             # Get dimensions using the accessor
-            _, max_row, _, max_col = sheet.get_dimensions()
+            min_row_dim, max_row, min_col, max_col = sheet.get_dimensions()
             
             # Start looking for header from the row after metadata
             data_start_row = metadata_rows + 1
             
-            # Look for the first row after metadata that looks like a header
+            # Try to find the first row after metadata with a value in the first column
+            for row in range(data_start_row, min(data_start_row + 10, max_row + 1)): # Increase search window slightly
+                # Find the first effective column (handling potential merges at the start)
+                first_effective_col = min_col
+                while (row, first_effective_col) in merge_map and merge_map[(row, first_effective_col)]['origin'] != (row, first_effective_col):
+                    first_effective_col += 1
+                    if first_effective_col > max_col:
+                        break # Should not happen if row has data
+                if first_effective_col > max_col:
+                    continue # Skip rows with only merged cells covering start
+
+                # Check if the first effective cell has a value
+                first_col_value = sheet.get_cell_value(row, first_effective_col)
+                
+                if first_col_value is not None and str(first_col_value).strip():
+                    # Assume this is the header row
+                    logger.info(f"Identified header row by first column value: {row}")
+                    return row
+            
+            # Fallback: If no header found by first column, use the previous logic (max values)
+            logger.info("Could not find header by first column value, trying max value count...")
+            best_header_row = data_start_row # Default to row after metadata
+            max_values_count = -1
+            
+            # Look for the row with the most populated cells within a small window after metadata
             for row in range(data_start_row, min(data_start_row + 5, max_row + 1)):
                 row_values_count = 0
                 # Check cells in this row
@@ -322,15 +346,19 @@ class StructureAnalyzer:
                     if cell_value is not None and str(cell_value).strip():
                         row_values_count += 1
                 
-                # If we find a row with several populated cells, consider it the header
-                threshold = max(header_threshold, max_col / 3)
-                if row_values_count >= threshold:
-                    logger.info(f"Identified header row: {row}")
-                    return row
-            
-            # If no clear header found, fallback to the row after metadata
-            logger.info(f"No clear header found, using row after metadata: {data_start_row}")
-            return data_start_row
+                # Update best candidate if this row has more values
+                if row_values_count > max_values_count:
+                    max_values_count = row_values_count
+                    best_header_row = row # Earliest row wins ties automatically
+                    
+            # If the best row found still doesn't meet the basic threshold, fallback
+            threshold = max(header_threshold, max_col / 3)
+            if max_values_count < threshold:
+                logger.info(f"No clear header found meeting threshold, using row after metadata: {data_start_row}")
+                return data_start_row
+            else:
+                 logger.info(f"Identified header row: {best_header_row}")
+                 return best_header_row
         except Exception as e:
             error_msg = f"Failed to identify header row: {str(e)}"
             logger.error(error_msg)

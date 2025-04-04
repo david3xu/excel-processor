@@ -60,11 +60,21 @@ class OutputFormatter:
             
             # Add columns if available
             if data.columns:
+                logger.debug(f"Formatter received: data.columns id: {id(data.columns)}")
                 result["columns"] = data.columns
+                logger.debug(f"Formatter assigned: result['columns'] id: {id(result['columns'])}")
             
             # Add sheet name if provided
             if sheet_name:
                 result["sheet_name"] = sheet_name
+            
+            # --- DEBUG --- 
+            logger.debug(f"Formatter result columns: {result.get('columns')}")
+            if result.get('data'):
+                 logger.debug(f"Formatter first data record: {result['data'][0]}")
+            else:
+                 logger.debug("Formatter: No data records found.")
+            # --- END DEBUG ---
             
             logger.info(
                 f"Formatted output with {len(result['metadata'])} metadata sections "

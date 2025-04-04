@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from config import ExcelProcessorConfig, get_data_access_config
+from core.extractor import DataExtractor
+from core.structure import StructureAnalyzer
 from excel_io import StrategyFactory, OpenpyxlStrategy, PandasStrategy, FallbackStrategy
 from output.formatter import OutputFormatter
 from output.writer import OutputWriter
@@ -142,6 +144,7 @@ class BatchWorkflow(BaseWorkflow):
     def _process_file(self, excel_file: str, file_cache: Optional[FileCache] = None) -> Dict[str, Any]:
         """
         Process a single Excel file as part of batch processing.
+        Processes all sheets in the Excel file, similar to MultiSheetWorkflow.
         
         Args:
             excel_file: Path to the Excel file
@@ -164,62 +167,122 @@ class BatchWorkflow(BaseWorkflow):
         file_stem = os.path.splitext(file_name)[0]
         output_file = os.path.join(self.config.output_dir, f"{file_stem}.json")
         
-        # Process file with direct strategy access if running in parallel
-        if self.config.parallel_processing:
+        # Create components
+        structure_analyzer = StructureAnalyzer()
+        data_extractor = DataExtractor()
+        formatter = OutputFormatter(include_structure_metadata=False)
+        writer = OutputWriter()
+        
+        try:
+            # Get factory (thread-local if parallel processing)
+            factory = self._get_thread_local_factory() if self.config.parallel_processing else self.strategy_factory
+            
+            # Create reader
+            reader = factory.create_reader(excel_file)
+            
+            # Open workbook
+            reader.open_workbook()
+            
             try:
-                # Get thread-local factory
-                factory = self._get_thread_local_factory()
+                # Determine which sheets to process (all sheets by default)
+                sheet_names = reader.get_sheet_names()
+                logger.info(f"Processing sheets: {', '.join(sheet_names)}")
                 
-                # Use strategy factory directly
-                reader = factory.create_reader(excel_file)
-                reader.open_workbook()
+                # Process each sheet
+                sheets_data = {}
+                for sheet_name in sheet_names:
+                    try:
+                        logger.info(f"Processing sheet: {sheet_name}")
+                        
+                        # Get sheet accessor
+                        sheet_accessor = reader.get_sheet_accessor(sheet_name)
+                        
+                        # Analyze sheet structure
+                        sheet_structure = structure_analyzer.analyze_sheet(
+                            sheet_accessor, 
+                            sheet_name
+                        )
+                        
+                        # Detect metadata and header
+                        detection_result = structure_analyzer.detect_metadata_and_header(
+                            sheet_accessor,
+                            sheet_name=sheet_name,
+                            max_metadata_rows=self.config.metadata_max_rows,
+                            header_threshold=self.config.header_detection_threshold
+                        )
+                        
+                        # Extract hierarchical data
+                        hierarchical_data = data_extractor.extract_data(
+                            sheet_accessor,
+                            sheet_structure.merge_map,
+                            detection_result.data_start_row,
+                            chunk_size=self.config.chunk_size,
+                            include_empty=self.config.include_empty_cells
+                        )
+                        
+                        # Format output for this sheet
+                        sheet_result = formatter.format_output(
+                            detection_result.metadata,
+                            hierarchical_data,
+                            sheet_name=sheet_name
+                        )
+                        
+                        # Add to sheets data
+                        sheets_data[sheet_name] = sheet_result
+                        
+                        logger.info(
+                            f"Processed sheet '{sheet_name}' with "
+                            f"{len(hierarchical_data.records)} records"
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to process sheet '{sheet_name}': {str(e)}")
+                        sheets_data[sheet_name] = {
+                            "status": "error",
+                            "error": str(e),
+                            "error_type": e.__class__.__name__
+                        }
                 
-                try:
-                    # Create config for single file processing
-                    single_config = ExcelProcessorConfig(
-                        input_file=excel_file,
-                        output_file=output_file
-                    )
-                    
-                    # Copy relevant settings from batch config
-                    single_config.metadata_max_rows = self.config.metadata_max_rows
-                    single_config.header_detection_threshold = self.config.header_detection_threshold
-                    single_config.include_empty_cells = self.config.include_empty_cells
-                    single_config.chunk_size = self.config.chunk_size
-                    
-                    # Process the file using single file workflow but with our reader
-                    from workflows.single_file import SingleFileWorkflow
-                    workflow = SingleFileWorkflow(single_config)
-                    workflow.strategy_factory = factory  # Use our factory
-                    result = workflow.execute()
-                finally:
-                    reader.close_workbook()
+                # Format multi-sheet output
+                multi_sheet_result = formatter.format_multi_sheet_output(sheets_data)
+                
+                # Write output
+                writer.write_json(multi_sheet_result, output_file)
+                
+                # Prepare result
+                success_count = sum(
+                    1 for data in sheets_data.values() 
+                    if data.get("status") != "error"
+                )
+                
+                result = {
+                    "status": "success",
+                    "input_file": excel_file,
+                    "output_file": output_file,
+                    "total_sheets": len(sheet_names),
+                    "processed_sheets": len(sheets_data),
+                    "success_count": success_count,
+                    "failure_count": len(sheets_data) - success_count,
+                    "sheet_names": list(sheets_data.keys()),
+                    "strategy_used": factory.determine_optimal_strategy(excel_file).get_strategy_name()
+                }
                 
                 # Store in cache if available
-                if file_cache and self.config.use_cache and result.get("status") == "success":
+                if file_cache and self.config.use_cache:
                     file_cache.set(excel_file, result)
                 
                 return result
-            except Exception as e:
-                logger.error(f"Error processing file with direct strategy: {str(e)}")
-                return {
-                    "status": "error",
-                    "error": str(e),
-                    "error_type": e.__class__.__name__
-                }
-        else:
-            # Process file using standard single file processor
-            result = process_single_file(
-                input_file=excel_file,
-                output_file=output_file,
-                config=self.config
-            )
-            
-            # Store in cache if available
-            if file_cache and self.config.use_cache and result.get("status") == "success":
-                file_cache.set(excel_file, result)
-            
-            return result
+                
+            finally:
+                # Ensure workbook is closed
+                reader.close_workbook()
+                
+        except Exception as e:
+            logger.error(f"Error processing file: {str(e)}")
+            return {
+                "status": "error",
+                "error": str(e),
+                "error_type": e.__class__.__name__
+            }
     
     def execute(self) -> Dict[str, Any]:
         """
@@ -252,6 +315,8 @@ class BatchWorkflow(BaseWorkflow):
             
             # Process files
             batch_results = {}
+            total_sheet_count = 0
+            total_success_sheets = 0
             
             if self.config.parallel_processing and len(excel_files) > 1:
                 # Process files in parallel
@@ -274,6 +339,11 @@ class BatchWorkflow(BaseWorkflow):
                             self.reporter.update(i + 1, f"Processing file: {file_name}")
                             result = future.result()
                             batch_results[file_name] = result
+                            
+                            # Count sheets
+                            if result.get("status") == "success":
+                                total_sheet_count += result.get("total_sheets", 0)
+                                total_success_sheets += result.get("success_count", 0)
                         except Exception as e:
                             logger.error(f"Failed to process file {file_name}: {str(e)}")
                             batch_results[file_name] = {
@@ -290,6 +360,11 @@ class BatchWorkflow(BaseWorkflow):
                         self.reporter.update(i + 1, f"Processing file: {file_name}")
                         result = self._process_file(excel_file, file_cache)
                         batch_results[file_name] = result
+                        
+                        # Count sheets
+                        if result.get("status") == "success":
+                            total_sheet_count += result.get("total_sheets", 0)
+                            total_success_sheets += result.get("success_count", 0)
                     except Exception as e:
                         logger.error(f"Failed to process file {file_name}: {str(e)}")
                         batch_results[file_name] = {
@@ -305,7 +380,7 @@ class BatchWorkflow(BaseWorkflow):
             )
             
             # Finish progress reporting
-            self.reporter.finish(f"Processing complete: {success_count}/{len(excel_files)} successful")
+            self.reporter.finish(f"Processing complete: {success_count}/{len(excel_files)} files, {total_success_sheets}/{total_sheet_count} sheets")
             
             # Return result
             return {
@@ -314,12 +389,18 @@ class BatchWorkflow(BaseWorkflow):
                 "output_dir": self.config.output_dir,
                 "total_files": len(excel_files),
                 "processed_files": len(batch_results),
-                "success_count": success_count,
-                "failure_count": len(batch_results) - success_count,
+                "success_file_count": success_count,
+                "failure_file_count": len(batch_results) - success_count,
+                "total_sheet_count": total_sheet_count,
+                "success_sheet_count": total_success_sheets,
                 "file_names": list(batch_results.keys()),
                 "cache_enabled": self.config.use_cache,
                 "parallel_processing": self.config.parallel_processing,
-                "strategies_used": [r.get("strategy_used", "unknown") for r in batch_results.values() if r.get("status") == "success"]
+                "sheet_counts": {
+                    file_name: result.get("total_sheets", 0) 
+                    for file_name, result in batch_results.items() 
+                    if result.get("status") == "success"
+                }
             }
         except Exception as e:
             self.reporter.error(f"Failed to process batch: {str(e)}")

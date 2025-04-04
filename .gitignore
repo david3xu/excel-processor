@@ -33,10 +33,10 @@ ENV/
 
 # Excel Processor specific
 data/input/*.xlsx
-# data/output/*.json
+data/output/*.json
 data/cache/*
 !data/input/.gitkeep
-# !data/output/.gitkeep
+!data/output/.gitkeep
 !data/cache/.gitkeep
 /output/*.json
 /data/logs/

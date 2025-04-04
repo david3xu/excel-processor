@@ -72,6 +72,10 @@ excel-processor multi -i data/input/input.xlsx -o data/output/output_multi.json
 # Running script directly:
 python cli.py multi -i data/input/input.xlsx -o data/output/output_multi.json
 
+
+python cli.py multi -i data/input/knowledge_graph_test_data.xlsx -o data/output/knowledge_graph_test_data.json
+
+
 # Specify specific sheets for multi:
 python cli.py multi -i data/input/input.xlsx -o data/output/output_multi_specific.json -s "Sheet1" "Sheet3"
 

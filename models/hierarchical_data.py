@@ -131,17 +131,19 @@ class HierarchicalRecord:
     def to_dict(self, include_metadata: bool = False) -> Dict[str, Any]:
         """
         Convert to dictionary representation.
+        Forces a flat dictionary {header: value} for debugging.
         
         Args:
-            include_metadata: Whether to include position and merge info
+            include_metadata: (Currently ignored) Whether to include position and merge info
             
         Returns:
             Dictionary representation of this record
         """
-        result = {}
+        flat_dict = {}
         for key, item in self.items.items():
-            result[key] = item.to_dict(include_metadata)
-        return result
+            # Use the item's key (header) and its direct value
+            flat_dict[key] = item.value 
+        return flat_dict
 
 
 @dataclass
