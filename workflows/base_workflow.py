@@ -23,18 +23,19 @@ logger = logging.getLogger(__name__)
 T = TypeVar('T')
 
 
-def with_error_handling(method: Callable):
+def with_error_handling(method: Callable) -> Callable:
     """
     Decorator to provide consistent error handling for workflow methods.
     
     Args:
-        method: The method to wrap with error handling
+        method: The method being decorated
         
     Returns:
-        Wrapped method with consistent error handling
+        Decorated method with error handling
     """
     @wraps(method)
     def wrapper(self, *args, **kwargs):
+        method_name = method.__name__
         try:
             return method(self, *args, **kwargs)
         except ValidationError as e:
@@ -42,13 +43,12 @@ def with_error_handling(method: Callable):
             raise convert_validation_error(
                 e, 
                 WorkflowConfigurationError,
-                f"Configuration validation failed in {self.__class__.__name__}"
+                f"Configuration validation failed in {self.__class__.__name__}.{method_name}"
             )
         except Exception as e:
             # Log and re-raise other exceptions
-            logger.error(f"Error in {self.__class__.__name__}.{method.__name__}: {str(e)}")
+            logger.error(f"Error in {self.__class__.__name__}.{method_name}: {str(e)}")
             raise
-    
     return wrapper
 
 
@@ -195,24 +195,40 @@ class BaseWorkflow:
         """
         output_format = self.config['output_format']
         
-        # Ensure the output directory exists
-        output_file.parent.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Saving output to file: {output_file}, format: {output_format}")
         
-        if output_format == 'json':
-            # Output data is already a JSON string
-            with open(output_file, 'w', encoding='utf-8') as f:
-                f.write(output_data)
-        elif output_format == 'csv':
-            # Output data is a CSV string
-            with open(output_file, 'w', encoding='utf-8', newline='') as f:
-                f.write(output_data)
-        elif output_format == 'dict':
-            # Output data is a Python dictionary, serialize to JSON
-            import json
-            with open(output_file, 'w', encoding='utf-8') as f:
-                json.dump(output_data, f, indent=2)
-        else:
-            # This should not happen as we validate in validate_config()
-            raise WorkflowConfigurationError(f"Unsupported output format: {output_format}")
-        
-        logger.info(f"Output saved to {output_file}")
+        try:
+            # Ensure the output directory exists
+            logger.info(f"Creating directory if needed: {output_file.parent}")
+            output_file.parent.mkdir(parents=True, exist_ok=True)
+            
+            if output_format == 'json':
+                # Output data is already a JSON string
+                logger.info(f"Writing JSON string to file (length: {len(output_data) if isinstance(output_data, str) else 'unknown'})")
+                with open(output_file, 'w', encoding='utf-8') as f:
+                    f.write(output_data)
+            elif output_format == 'csv':
+                # Output data is a CSV string
+                logger.info(f"Writing CSV string to file (length: {len(output_data) if isinstance(output_data, str) else 'unknown'})")
+                with open(output_file, 'w', encoding='utf-8', newline='') as f:
+                    f.write(output_data)
+            elif output_format == 'dict':
+                # Output data is a Python dictionary, serialize to JSON
+                logger.info(f"Writing dictionary to JSON file")
+                import json
+                with open(output_file, 'w', encoding='utf-8') as f:
+                    json.dump(output_data, f, indent=2)
+            else:
+                # This should not happen as we validate in validate_config()
+                raise WorkflowConfigurationError(f"Unsupported output format: {output_format}")
+            
+            # Verify file was created
+            if output_file.exists():
+                file_size = output_file.stat().st_size
+                logger.info(f"Output saved to {output_file} (size: {file_size} bytes)")
+            else:
+                logger.error(f"Failed to create output file: {output_file} (file not found after writing)")
+                
+        except Exception as e:
+            logger.error(f"Error saving output to {output_file}: {str(e)}", exc_info=True)
+            raise

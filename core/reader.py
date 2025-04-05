@@ -971,25 +971,54 @@ class ExcelReader:
         Returns:
             WorkbookData model
         """
-        if self.workbook is None:
-            self.open()
-            
-        all_sheet_names = self.get_sheet_names()
+        logger.info(f"Reading workbook: {self.file_path}")
         
-        # If no sheet names provided, read all sheets
-        if not sheet_names:
-            sheet_names = all_sheet_names
-            
-        # Create sheets dict
-        sheets = {}
-        for name in sheet_names:
-            if name in all_sheet_names:
-                sheet = self.get_sheet(name)
-                sheets[name] = self.create_worksheet_model(sheet)
+        try:
+            if self.workbook is None:
+                logger.info("Opening workbook before reading")
+                self.open()
                 
-        # Create workbook model
-        return WorkbookData(
-            file_path=str(self.file_path),
-            sheets=sheets,
-            sheet_names=sheet_names
-        )
+            all_sheet_names = self.get_sheet_names()
+            logger.info(f"All available sheets: {all_sheet_names}")
+            
+            # If no sheet names provided, read all sheets
+            if not sheet_names:
+                sheet_names = all_sheet_names
+                logger.info(f"No specific sheets requested, reading all sheets: {sheet_names}")
+            else:
+                logger.info(f"Reading specific sheets: {sheet_names}")
+                
+            # Create sheets dict
+            sheets = {}
+            for name in sheet_names:
+                if name in all_sheet_names:
+                    logger.info(f"Processing sheet: {name}")
+                    try:
+                        sheet = self.get_sheet(name)
+                        logger.info(f"Got sheet object: {sheet}, type: {type(sheet)}")
+                        worksheet_model = self.create_worksheet_model(sheet)
+                        logger.info(f"Created worksheet model for {name}: {worksheet_model}")
+                        sheets[name] = worksheet_model
+                    except Exception as e:
+                        logger.error(f"Error processing sheet {name}: {str(e)}", exc_info=True)
+                        # Continue with other sheets instead of failing completely
+                        continue
+                else:
+                    logger.warning(f"Sheet {name} not found in workbook, skipping")
+                    
+            logger.info(f"Successfully processed {len(sheets)} sheet(s)")
+                    
+            # Create workbook model
+            workbook_data = WorkbookData(
+                file_path=str(self.file_path),
+                sheets=sheets,
+                sheet_names=list(sheets.keys())  # Use only the sheets we actually processed
+            )
+            
+            logger.info(f"Created workbook model: {workbook_data}")
+            return workbook_data
+            
+        except Exception as e:
+            logger.error(f"Error reading workbook {self.file_path}: {str(e)}", exc_info=True)
+            # Re-raise to propagate the error
+            raise

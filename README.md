@@ -8,6 +8,8 @@ A comprehensive tool for processing Excel files with complex structures to JSON,
 - Handles merged cells properly, preserving hierarchical relationships
 - Smart structure analysis to identify headers and data sections
 - **Strong data validation with Pydantic models throughout the processing pipeline**
+- **Advanced header detection for complex Excel structures, including multi-level headers**
+- **Preserves original header structure in output data with proper mapping to values**
 - Processes single files, multiple sheets, or batch processing
 - Memory-efficient processing with chunking for large files
 - Streaming processing for extremely large files with minimal memory usage
@@ -46,21 +48,39 @@ source .venv/bin/activate  # Linux/Mac
 pip install -r requirements.txt
 ```
 
-2. **Basic streaming processing**
+2. **Basic processing with header detection**
+
+```bash
+# DEFAULT COMMAND: Process a file with automatic metadata and header detection (recommended)
+python cli.py single -i data/input/sample.xlsx -o data/output/result.json
+
+# Process with explicit header detection options
+python cli.py single -i data/input/sample.xlsx -o data/output/result.json --include-headers --metadata-max-rows=5
+
+# Process with raw grid data (preserves original Excel structure)
+python cli.py single -i data/input/sample.xlsx -o data/output/result_with_grid.json --include-headers --include-raw-grid
+
+# Process complex headers (multi-level headers, merged cells)
+python cli.py single -i data/input/complex_structure.xlsx -o data/output/complex_result.json --multi-level-header-detection
+```
+
+**Note:** By default, the processor automatically detects metadata and headers without requiring additional flags. The `--include-headers` flag is enabled by default, and metadata detection examines the first 6 rows of each sheet. These defaults work well for most Excel files.
+
+3. **Basic streaming processing**
 
 ```bash
 # Process a large Excel file with streaming mode
 python cli.py single -i data/input/large_file.xlsx -o data/output/result.json --streaming
 ```
 
-3. **Add checkpointing for resumable processing**
+4. **Add checkpointing for resumable processing**
 
 ```bash
 # Enable checkpointing to resume if processing is interrupted
 python cli.py single -i data/input/large_file.xlsx -o data/output/result.json --streaming --use-checkpoints
 ```
 
-4. **Resume from a previous checkpoint**
+5. **Resume from a previous checkpoint**
 
 ```bash
 # List available checkpoints
@@ -70,7 +90,7 @@ python cli.py --list-checkpoints
 python cli.py single -i data/input/large_file.xlsx -o data/output/result.json --streaming --resume cp_large_file_1234567890_abcd1234
 ```
 
-5. **Customize streaming behavior**
+6. **Customize streaming behavior**
 
 ```bash
 # Adjust memory usage and chunk size
@@ -78,25 +98,36 @@ python cli.py single -i data/input/large_file.xlsx -o data/output/result.json --
   --streaming-chunk-size 2000 --memory-threshold 0.7
 ```
 
-6. **Multi-sheet streaming processing**
+7. **Multi-sheet processing**
 
 ```bash
-# Process multiple sheets from one large file with streaming
-python cli.py multi -i data/input/large_file.xlsx -o data/output/result.json --streaming --use-checkpoints
+# DEFAULT COMMAND: Process all sheets from one file with automatic header detection
+python cli.py multi -i data/input/multi_sheet.xlsx -o data/output/multi_result.json
 
-# Process specific sheets with streaming
-python cli.py multi -i data/input/large_file.xlsx -o data/output/result.json --streaming \
-  -s "Sheet1" "Sheet3" --use-checkpoints
+# Process all sheets with raw grid preservation
+python cli.py multi -i data/input/multi_sheet.xlsx -o data/output/multi_result_with_grid.json --include-raw-grid
+
+# Process specific sheets only
+python cli.py multi -i data/input/multi_sheet.xlsx -o data/output/selected_sheets.json -s "Sheet1" "Sheet3"
+
+# Process all sheets with streaming for large files
+python cli.py multi -i data/input/large_file.xlsx -o data/output/result.json --streaming --use-checkpoints
 ```
 
-7. **Batch streaming processing**
+8. **Batch processing**
 
 ```bash
-# Process all Excel files in a directory with streaming
-python cli.py batch -i data/input -o data/output --streaming --use-checkpoints
+# DEFAULT COMMAND: Process all Excel files in a directory with automatic header detection
+python cli.py batch -i data/input -o data/output
 
-# Batch processing with streaming and parallel execution
-python cli.py batch -i data/input -o data/output --streaming --parallel --workers 4 --use-checkpoints
+# Process all Excel files with raw grid preservation
+python cli.py batch -i data/input -o data/output --include-raw-grid
+
+# Batch processing with parallel execution
+python cli.py batch -i data/input -o data/output --parallel --workers 4
+
+# Batch processing with streaming for large files
+python cli.py batch -i data/input -o data/output --streaming --use-checkpoints
 ```
 
 Key streaming options:
@@ -260,6 +291,9 @@ result = process_single_file('input.xlsx', 'output.json', config)
 - `metadata_max_rows`: Maximum rows to check for metadata (default: 6)
 - `header_detection_threshold`: Minimum values to consider a header row (default: 3)
 - `include_empty_cells`: Whether to include null values (default: False)
+- `include_headers`: Whether to include headers in output (default: True)
+- `include_raw_grid`: Whether to include raw Excel grid in output (default: False)
+- `multi_level_header_detection`: Enable detection of multi-level headers (default: True)
 - `chunk_size`: Number of rows to process at once (default: 1000)
 - `cache_dir`: Directory for cache storage (default: data/cache)
 - `input_dir`: Default input directory (default: data/input)
@@ -394,3 +428,91 @@ config = ExcelProcessorConfig(
 # All configuration values are validated automatically
 # Raises ValidationError if invalid values are provided
 ```
+
+## Enhanced Header Detection
+
+The Excel Processor includes an advanced header detection algorithm that can identify and preserve complex header structures:
+
+### Header Detection Features
+
+- **Multi-level Header Recognition**: Correctly identifies multiple levels of headers in complex Excel files
+- **Smart Metadata vs. Header Classification**: Distinguishes between document metadata and actual column headers
+- **Style-based Recognition**: Uses cell formatting (bold, background colors) to identify likely header rows
+- **Pattern Analysis**: Analyzes content patterns to separate headers from data rows
+- **Merged Cell Support**: Properly handles merged cells in headers to maintain relationships
+
+### Header Preservation in Output
+
+The processor preserves headers exactly as they appear in Excel:
+
+```json
+{
+  "sheets": {
+    "Example Sheet": {
+      "headers": {
+        "2": "Units", 
+        "3": "Weight (kg)",
+        "4": "%"
+      },
+      "records": [
+        {
+          "Column 1": "Item 1",
+          "Units": 547,
+          "Weight (kg)": 2735,
+          "%": 92.5
+        }
+      ]
+    }
+  }
+}
+```
+
+This ensures data integrity and maintains the semantic meaning of the original Excel structure.
+
+## Testing Header Detection
+
+To test and validate the header detection functionality, the project includes a specialized testing script `test_excel_processor.py` that demonstrates header preservation with various Excel structures.
+
+### Setting Up the Test Environment
+
+```bash
+# Create and activate the virtual environment
+python -m venv .venv
+source .venv/bin/activate  # Linux/Mac
+# OR
+.venv\Scripts\activate     # Windows
+
+# Install required packages
+pip install pandas openpyxl
+```
+
+### Running the Test Script
+
+The test script provides several options for testing different aspects of header detection:
+
+```bash
+# Test with a complex generated Excel file (with multi-level headers)
+python test_excel_processor.py --complex
+
+# Test direct header identification (helpful for debugging)
+python test_excel_processor.py --complex --direct-test
+
+# Test with a specific input file
+python test_excel_processor.py --input data/input/your_excel_file.xlsx
+
+# Test specific sheet in a file
+python test_excel_processor.py --input data/input/your_excel_file.xlsx --sheet "Sheet Name"
+
+# Test header identification only (without full processing)
+python test_excel_processor.py --input data/input/your_excel_file.xlsx --identification-only
+```
+
+### Test Output
+
+The test script will:
+1. Generate or process the Excel file
+2. Log detected headers for each sheet
+3. Display the first record showing header mappings
+4. Save the full result to `data/output/complex_headers_result.json` (for complex tests)
+
+This test is useful for validating header detection with different Excel formats and structures.

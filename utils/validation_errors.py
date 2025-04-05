@@ -10,53 +10,39 @@ from utils.exceptions import ExcelProcessorError, ConfigurationError
 
 def convert_validation_error(
     error: ValidationError,
-    error_class: Type[ExcelProcessorError] = ConfigurationError,
-    error_source: str = "validation",
-    **kwargs: Any
+    exception_class: Type[ExcelProcessorError],
+    message: str,
+    details: Optional[Dict[str, Any]] = None
 ) -> ExcelProcessorError:
     """
-    Convert Pydantic ValidationError to application-specific exception.
-    
-    This function transforms detailed Pydantic validation errors into
-    application-specific exceptions for consistent error handling across
-    the Excel-to-JSON conversion pipeline.
+    Convert a Pydantic ValidationError to an application-specific exception.
     
     Args:
-        error: Pydantic ValidationError
-        error_class: Target exception class
-        error_source: Source identifier for the error
-        **kwargs: Additional error details
+        error: The ValidationError to convert
+        exception_class: The exception class to create
+        message: The error message for the new exception
+        details: Additional details to include in the exception
         
     Returns:
-        Application-specific exception with structured error information
+        An instance of the specified exception class
     """
-    # Extract error details in a user-friendly format
-    error_details = []
+    details = details or {}
+    
+    # Extract validation error details
+    validation_details = []
     for err in error.errors():
-        # Format location path
-        if err.get('loc'):
-            loc_path = " → ".join(str(loc) for loc in err['loc'])
-            error_details.append(f"{loc_path}: {err.get('msg', 'Validation error')}")
-        else:
-            error_details.append(err.get('msg', 'Validation error'))
+        loc = ".".join(str(item) for item in err["loc"])
+        validation_details.append({
+            "location": loc,
+            "type": err.get("type"),
+            "msg": err.get("msg")
+        })
     
-    # Create comprehensive error message
-    if len(error_details) == 1:
-        error_message = f"Validation failed: {error_details[0]}"
-    else:
-        error_detail_list = "\n- ".join([""] + error_details)
-        error_message = f"Multiple validation errors detected:{error_detail_list}"
+    # Include validation details in the exception
+    details["validation_errors"] = validation_details
     
-    # Add validation details to kwargs
-    details = kwargs.copy()
-    details["validation_errors"] = error_details
-    
-    # Create and return application exception
-    return error_class(
-        message=error_message,
-        source=error_source,
-        details=details
-    )
+    # Create and return the application-specific exception
+    return exception_class(message, details=details)
 
 def format_validation_errors(error: ValidationError) -> str:
     """

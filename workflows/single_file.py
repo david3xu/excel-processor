@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field, validator
 
 from core.reader import ExcelReader
 from models.excel_data import WorkbookData
+from output.formatter import OutputFormatter
 from utils.exceptions import WorkflowConfigurationError
 from .base_workflow import BaseWorkflow, with_error_handling
 
@@ -53,6 +54,34 @@ class SingleFileWorkflow(BaseWorkflow):
     This workflow reads a single Excel file and converts it to the specified
     output format, with options for header handling and data formatting.
     """
+    
+    def __init__(self, config: Any):
+        """
+        Initialize the workflow with configuration.
+        
+        Args:
+            config: Configuration dictionary or Pydantic model
+            
+        Raises:
+            WorkflowConfigurationError: If configuration validation fails
+        """
+        # Convert Pydantic model to dict if needed
+        if hasattr(config, 'model_dump'):
+            self.config = config.model_dump()
+        elif hasattr(config, 'dict'):
+            # Legacy Pydantic v1 support
+            self.config = config.dict()
+        else:
+            self.config = config
+        
+        # Validate configuration
+        self.validate_config()
+        
+        # Initialize formatter with configuration options
+        self.formatter = OutputFormatter(
+            include_headers=self.get_validated_value('include_headers', True),
+            include_raw_grid=self.get_validated_value('include_raw_grid', False)
+        )
     
     def validate_config(self) -> None:
         """
@@ -114,15 +143,49 @@ class SingleFileWorkflow(BaseWorkflow):
         return output_data
 
 
-def process_single_file(config: Dict[str, Any]) -> Any:
+def process_single_file(
+    input_file: str, 
+    output_file: str, 
+    config: Any
+) -> Dict[str, Any]:
     """
     Process a single Excel file with the given configuration.
     
     Args:
-        config: Configuration dictionary
+        input_file: Path to the input Excel file
+        output_file: Path to the output file
+        config: Configuration object or dictionary
         
     Returns:
-        Processed data in the specified output format
+        Dictionary with processing results
     """
-    workflow = SingleFileWorkflow(config)
-    return workflow.process()
+    # Create a copy of the config to avoid modifying the original
+    if hasattr(config, 'model_copy'):
+        # For Pydantic models
+        workflow_config = config.model_copy(deep=True)
+    else:
+        # For dictionary configs
+        from copy import deepcopy
+        workflow_config = deepcopy(config)
+        
+    # Ensure input and output files are set in the config
+    if hasattr(workflow_config, 'input_file'):
+        workflow_config.input_file = input_file
+    elif isinstance(workflow_config, dict):
+        workflow_config['input_file'] = input_file
+        
+    if hasattr(workflow_config, 'output_file'):
+        workflow_config.output_file = output_file
+    elif isinstance(workflow_config, dict):
+        workflow_config['output_file'] = output_file
+    
+    # Create and run workflow
+    workflow = SingleFileWorkflow(workflow_config)
+    result = workflow.process()
+    
+    return {
+        "status": "success",
+        "result": result,
+        "file": input_file,
+        "output": output_file
+    }

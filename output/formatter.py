@@ -1,8 +1,6 @@
 """
-Output formatter for Excel data.
-
-This module provides formatting functionality to convert Excel data models 
-into various output formats like JSON, dict, CSV, etc. with header handling.
+Output formatting for Excel data.
+Provides formatters for converting structured Excel data to various output formats.
 """
 
 import json
@@ -18,79 +16,108 @@ logger = logging.getLogger(__name__)
 
 class OutputFormatter:
     """
-    Formats Excel data for output in various formats.
+    Formatter for Excel data.
     
-    This class handles the conversion of Excel data models into
-    output formats like JSON, Python dictionaries, CSV, etc.
+    Formats structured Excel data into various output formats,
+    including JSON, CSV, and Python dictionaries.
     """
     
-    def __init__(self, include_headers: bool = True, include_raw_grid: bool = False):
+    def __init__(
+        self,
+        include_headers: bool = True,
+        include_raw_grid: bool = False,
+        indent: int = 2
+    ):
         """
-        Initialize the formatter with formatting options.
+        Initialize the formatter.
         
         Args:
             include_headers: Whether to include headers in the output
             include_raw_grid: Whether to include raw grid data in the output
+            indent: Indentation level for JSON output
         """
         self.include_headers = include_headers
         self.include_raw_grid = include_raw_grid
-    
-    def format_as_dict(self, workbook_data: WorkbookData) -> Dict[str, Any]:
-        """
-        Format workbook data as a Python dictionary.
-        
-        Args:
-            workbook_data: WorkbookData model to format
-            
-        Returns:
-            Dictionary representation of the workbook data
-        """
-        return workbook_data.to_dict(
-            include_headers=self.include_headers,
-            include_raw_grid=self.include_raw_grid
-        )
+        self.indent = indent
     
     def format_as_json(self, workbook_data: WorkbookData) -> str:
         """
         Format workbook data as a JSON string.
         
         Args:
-            workbook_data: WorkbookData model to format
+            workbook_data: WorkbookData to format
             
         Returns:
             JSON string representation of the workbook data
         """
-        # Convert to dictionary first
-        data_dict = self.format_as_dict(workbook_data)
-        
-        # Use custom serializer for types like datetime
-        def json_serializer(obj):
-            if isinstance(obj, datetime):
-                return obj.isoformat()
-            raise TypeError(f"Type {type(obj)} not serializable")
-        
-        # Convert to JSON string
-        return json.dumps(data_dict, default=json_serializer, indent=2)
+        try:
+            # Convert to dictionary
+            dict_data = self.format_as_dict(workbook_data)
+            
+            # Log the dictionary structure for debugging
+            logger = logging.getLogger(__name__)
+            logger.info(f"Converting workbook data to JSON (sheet count: {len(dict_data) if isinstance(dict_data, dict) else 'unknown'})")
+            
+            # Handle potential datetime objects and other non-serializable types
+            def json_serializer(obj):
+                """Custom serializer for non-serializable objects."""
+                if hasattr(obj, 'isoformat'):  # Handle datetime, date, time objects
+                    return obj.isoformat()
+                else:
+                    return str(obj)  # Convert other objects to string
+            
+            # Convert to JSON string with specified indentation
+            json_str = json.dumps(dict_data, indent=self.indent, default=json_serializer, ensure_ascii=False)
+            logger.info(f"JSON conversion successful, string length: {len(json_str)}")
+            
+            return json_str
+            
+        except Exception as e:
+            # Log the error and re-raise
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error formatting workbook data as JSON: {str(e)}", exc_info=True)
+            raise
     
-    def format_sheet_as_csv(self, sheet_data: WorksheetData) -> str:
+    def format_as_dict(self, workbook_data: WorkbookData) -> Dict[str, Any]:
         """
-        Format a single worksheet as CSV.
+        Format workbook data as a Python dictionary.
         
         Args:
-            sheet_data: WorksheetData model to format
+            workbook_data: WorkbookData to format
             
         Returns:
-            CSV string representation of the worksheet data
+            Dictionary representation of the workbook data
         """
+        # Convert to dictionary using to_dict method
+        return workbook_data.to_dict(
+            include_headers=self.include_headers,
+            include_raw_grid=self.include_raw_grid
+        )
+    
+    def format_sheet_as_csv(self, sheet_data: Any) -> str:
+        """
+        Format a single sheet as a CSV string.
+        
+        Args:
+            sheet_data: Sheet data to format
+            
+        Returns:
+            CSV string representation of the sheet data
+        """
+        # Simple CSV formatter (can be expanded as needed)
+        if not hasattr(sheet_data, "rows"):
+            return ""
+        
         output = io.StringIO()
         writer = csv.writer(output)
         
-        # Get the raw grid with headers if requested
-        grid = sheet_data.get_raw_grid(include_headers=self.include_headers)
+        # Add headers if available and requested
+        if self.include_headers and hasattr(sheet_data, "headers"):
+            writer.writerow([h.value for h in sheet_data.headers.cells])
         
-        # Write each row to the CSV writer
-        for row in grid:
-            writer.writerow(row)
+        # Add data rows
+        for row in sheet_data.rows:
+            writer.writerow([cell.value for cell in row.cells])
         
         return output.getvalue()
     

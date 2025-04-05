@@ -47,6 +47,8 @@ class BatchConfig(BaseModel):
     cache_dir: str = Field("data/cache", description="Directory for cache files")
     parallel_processing: bool = Field(True, description="Whether to use parallel processing")
     max_workers: int = Field(4, ge=1, description="Maximum number of worker threads")
+    file_pattern: str = Field("*.xlsx", description="File pattern to match in input directory")
+    prefer_multi_sheet_mode: bool = Field(False, description="Whether to prefer multi-sheet processing mode")
     
     class Config:
         """Pydantic configuration for BatchConfig."""
@@ -85,7 +87,9 @@ class ExcelProcessorConfig(BaseModel):
     input_file: Optional[str] = Field(None, description="Path to input Excel file")
     output_file: Optional[str] = Field(None, description="Path to output file")
     input_dir: Optional[str] = Field(None, description="Default input directory")
+    input_files: Optional[List[str]] = Field(None, description="List of input files to process")
     output_dir: Optional[str] = Field(None, description="Default output directory for batch")
+    output_format: str = Field("json", description="Output format (json, csv, etc.)")
     
     # Sheet settings
     sheet_name: Optional[str] = Field(None, description="Name of sheet to process")
@@ -95,6 +99,9 @@ class ExcelProcessorConfig(BaseModel):
     metadata_max_rows: int = Field(6, ge=0, description="Maximum rows to scan for metadata")
     header_detection_threshold: int = Field(3, ge=1, description="Minimum cells in a row to consider it a header")
     include_empty_cells: bool = Field(False, description="Whether to include empty cells in output")
+    include_headers: bool = Field(True, description="Whether to include headers in output")
+    include_raw_grid: bool = Field(False, description="Whether to include raw Excel grid in output")
+    multi_level_header_detection: bool = Field(True, description="Whether to detect multi-level headers")
     chunk_size: int = Field(1000, ge=100, description="Number of rows to process in a chunk")
     
     # Nested configuration sections
@@ -131,18 +138,12 @@ class ExcelProcessorConfig(BaseModel):
         # Cannot specify both output_file and output_dir
         if self.output_file and self.output_dir:
             raise ValueError("Cannot specify both output_file and output_dir")
-            
-        # Must specify either input_file or input_dir
-        if not (self.input_file or self.input_dir):
-            raise ValueError("Must specify either input_file or input_dir")
-            
-        # If input_dir is set, output_dir must also be set
-        if self.input_dir and not self.output_dir:
-            raise ValueError("Must specify output_dir when input_dir is specified")
-            
-        # If input_file is set, output_file should also be set
-        if self.input_file and not self.output_file:
-            raise ValueError("Must specify output_file when input_file is specified")
+        
+        # No need to require input_file or input_dir - these can be provided later
+        # Add output_format if not specified
+        if not hasattr(self, 'output_format'):
+            # Default to JSON output format
+            self.output_format = "json"
             
         return self
     

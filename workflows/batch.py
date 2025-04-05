@@ -9,392 +9,347 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Optional, Set, Tuple, Union, Callable
 from pydantic import ValidationError
+import logging
 
 from config import ExcelProcessorConfig
+from output.formatter import OutputFormatter
 from utils.exceptions import (
     WorkflowConfigurationError, WorkflowError, 
     BatchProcessingError, FileProcessingError
 )
 from utils.logging import get_logger
-from workflows.base_workflow import BaseWorkflow
+from utils.progress import ProgressReporter
+from workflows.base_workflow import BaseWorkflow, with_error_handling
 from workflows.single_file import SingleFileWorkflow
 from workflows.multi_sheet import MultiSheetWorkflow
 from utils.validation_errors import convert_validation_error
+from core.reader import ExcelReader
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class BatchWorkflow(BaseWorkflow):
     """
-    Enhanced workflow for processing multiple Excel files as a batch.
+    Workflow for processing multiple Excel files as a batch.
     
-    This workflow orchestrates the Excel-to-JSON conversion process for multiple
-    files, incorporating Pydantic validation at each transformation boundary while
-    optimizing for concurrency and error handling.
+    This workflow processes all Excel files in a directory or a specified list,
+    and converts them to the specified output format.
     """
+    
+    def __init__(self, config: Any):
+        """
+        Initialize the workflow with configuration.
+        
+        Args:
+            config: Configuration dictionary or Pydantic model
+            
+        Raises:
+            WorkflowConfigurationError: If configuration validation fails
+        """
+        # Convert Pydantic model to dict if needed
+        if hasattr(config, 'model_dump'):
+            self.config = config.model_dump()
+        elif hasattr(config, 'dict'):
+            # Legacy Pydantic v1 support
+            self.config = config.dict()
+        else:
+            self.config = config
+        
+        # Validate configuration
+        self.validate_config()
+        
+        # Initialize components
+        self.reporter = ProgressReporter()
+        
+        # Initialize formatter with configuration options
+        self.formatter = OutputFormatter(
+            include_headers=self.get_validated_value('include_headers', True),
+            include_raw_grid=self.get_validated_value('include_raw_grid', False)
+        )
+        
+        # Get input and output directories
+        self.input_dir = self.get_validated_value('input_dir')
+        self.output_dir = self.get_validated_value('output_dir')
     
     def validate_config(self) -> None:
         """
-        Validate batch workflow configuration requirements.
-        
-        This validator ensures the configuration contains essential parameters
-        specific to batch processing, such as input directory, file patterns,
-        and concurrency settings.
+        Validate the workflow configuration.
         
         Raises:
-            WorkflowConfigurationError: If configuration is invalid for batch processing
+            WorkflowConfigurationError: If validation fails
         """
-        # Check if using Pydantic config
-        if isinstance(self.config, ExcelProcessorConfig):
-            # Validated by Pydantic already, but check workflow-specific requirements
-            if not (self.config.input_dir or self.config.input_files):
-                raise WorkflowConfigurationError(
-                    "Either input_dir or input_files must be specified for batch workflow",
-                    workflow_name="BatchWorkflow",
-                    param_name="input_dir, input_files"
-                )
-            
-            # Check batch concurrency settings
-            max_workers = self.config.batch.max_workers
-            if max_workers < 1:
-                raise WorkflowConfigurationError(
-                    "max_workers must be at least 1",
-                    workflow_name="BatchWorkflow",
-                    param_name="batch.max_workers"
-                )
-            
-            # Validate file pattern if input_dir is used
-            if self.config.input_dir and not self.config.batch.file_pattern:
-                logger.warning("No file pattern specified, using default '*.xlsx'")
-        else:
-            # Legacy validation
-            if not (getattr(self.config, "input_dir", None) or getattr(self.config, "input_files", None)):
-                raise WorkflowConfigurationError(
-                    "Either input_dir or input_files must be specified for batch workflow",
-                    workflow_name="BatchWorkflow",
-                    param_name="input_dir, input_files"
-                )
-    
-    def _get_files_to_process(self) -> List[str]:
-        """
-        Get the list of files to process with validated configuration.
-        
-        This method resolves the files to process based on either explicit file list
-        or directory pattern matching, using Pydantic-validated configuration.
-        
-        Returns:
-            List of file paths to process
-        """
-        files_to_process = []
-        
-        # Handle explicit file list with validation
-        if isinstance(self.config, ExcelProcessorConfig):
-            # Access with Pydantic validation
-            input_files = self.config.input_files
-            if input_files:
-                logger.info(f"Using explicit list of {len(input_files)} files to process")
-                return input_files
-            
-            # Use input directory with file pattern
-            input_dir = self.config.input_dir
-            file_pattern = self.config.batch.file_pattern or "*.xlsx"
-        else:
-            # Legacy access
-            input_files = getattr(self.config, "input_files", None)
-            if input_files:
-                logger.info(f"Using explicit list of {len(input_files)} files to process")
-                return input_files
-            
-            # Use input directory with file pattern
-            input_dir = getattr(self.config, "input_dir", "")
-            file_pattern = getattr(self.config, "file_pattern", "*.xlsx")
-        
-        # Find files matching pattern in directory
-        if input_dir:
-            pattern = os.path.join(input_dir, file_pattern)
-            files_to_process = glob.glob(pattern)
-            logger.info(f"Found {len(files_to_process)} files matching pattern '{pattern}'")
-        
-        return files_to_process
-    
-    def _should_use_multi_sheet_workflow(self, file_path: str) -> bool:
-        """
-        Determine if multi-sheet workflow should be used for a file with validation.
-        
-        This method determines whether to process a file as a single sheet or
-        multi-sheet workflow based on Pydantic-validated configuration.
-        
-        Args:
-            file_path: Path to the input Excel file
-            
-        Returns:
-            Boolean indicating whether to use multi-sheet workflow
-        """
-        # Access multi-sheet flag with validation
-        if isinstance(self.config, ExcelProcessorConfig):
-            # Pydantic validated configuration
-            return self.config.batch.prefer_multi_sheet_mode
-        else:
-            # Legacy configuration
-            return getattr(self.config, "prefer_multi_sheet_mode", False)
-    
-    def _create_workflow_config(self, input_file: str) -> ExcelProcessorConfig:
-        """
-        Create a validated configuration for processing an individual file.
-        
-        This method creates a new configuration object for a specific file,
-        preserving global settings while applying file-specific settings.
-        
-        Args:
-            input_file: Path to the input Excel file
-            
-        Returns:
-            Configuration object for the specific file
-        """
-        # Generate output file path with validation
-        output_file = None
-        if isinstance(self.config, ExcelProcessorConfig):
-            output_dir = self.config.output_dir
-            # Create Pydantic-validated config
-            if output_dir:
-                # Ensure output directory exists
-                os.makedirs(output_dir, exist_ok=True)
-                
-                # Create output file path
-                file_name = Path(input_file).stem
-                output_file = os.path.join(output_dir, f"{file_name}.json")
-            
-            # Create a copy of the config with file-specific settings
-            file_config = self.config.model_copy(deep=True)
-            file_config.input_file = input_file
-            file_config.output_file = output_file
-            
-            return file_config
-        else:
-            # Legacy config handling
-            from copy import deepcopy
-            output_dir = getattr(self.config, "output_dir", None)
-            if output_dir:
-                # Ensure output directory exists
-                os.makedirs(output_dir, exist_ok=True)
-                
-                # Create output file path
-                file_name = Path(input_file).stem
-                output_file = os.path.join(output_dir, f"{file_name}.json")
-            
-            # Create a copy of the config with file-specific settings
-            file_config = deepcopy(self.config)
-            setattr(file_config, "input_file", input_file)
-            setattr(file_config, "output_file", output_file)
-            
-            return file_config
-    
-    def _process_single_file(self, input_file: str) -> Dict[str, Any]:
-        """
-        Process a single file in the batch with validation.
-        
-        This method processes an individual file using either single-sheet or
-        multi-sheet workflow based on configuration, with Pydantic validation.
-        
-        Args:
-            input_file: Path to the input Excel file
-            
-        Returns:
-            Processing result for the file
-            
-        Raises:
-            FileProcessingError: If file processing fails
-        """
+        # Apply parent validation
         try:
-            # Select appropriate workflow with validation
-            file_config = self._create_workflow_config(input_file)
-            
-            logger.info(f"Processing file: {input_file}")
-            
-            if self._should_use_multi_sheet_workflow(input_file):
-                # Use multi-sheet workflow
-                workflow = MultiSheetWorkflow(file_config)
-            else:
-                # Use single-file workflow
-                workflow = SingleFileWorkflow(file_config)
-            
-            # Execute workflow with validation
-            result = workflow.execute()
-            
-            logger.info(f"Successfully processed file: {input_file}")
-            return {
-                "file_path": input_file,
-                "status": "success",
-                "result": result
-            }
-        except Exception as e:
-            logger.error(f"Failed to process file {input_file}: {str(e)}")
-            
-            # Convert validation errors to application-specific errors
-            if isinstance(e, ValidationError):
-                e = convert_validation_error(
-                    e, FileProcessingError,
-                    f"File '{os.path.basename(input_file)}' validation failed",
-                    {"file_path": input_file}
-                )
-            
-            return {
-                "file_path": input_file,
-                "status": "error",
-                "error": str(e),
-                "error_type": type(e).__name__
-            }
-    
-    @BaseWorkflow.with_error_handling("execute")
-    def execute(self) -> Dict[str, Any]:
-        """
-        Execute the batch workflow with validation at transformation boundaries.
+            super().validate_config()
+        except WorkflowConfigurationError:
+            # For batch processing, we don't need input_file but input_dir instead
+            pass
         
-        This method orchestrates the processing of multiple Excel files concurrently,
-        with Pydantic validation at each critical transformation stage and robust
-        error handling to ensure overall batch completion despite individual failures.
+        # Validate batch-specific configuration
+        self.validate_batch_specific_config()
+    
+    def validate_batch_specific_config(self) -> None:
+        """Validate configuration specific to batch processing."""
+        if not self.get_validated_value('input_dir'):
+            raise WorkflowConfigurationError("Input directory must be specified")
+        
+        if not self.get_validated_value('output_dir'):
+            raise WorkflowConfigurationError("Output directory must be specified")
+    
+    def _get_excel_files(self, file_pattern: str) -> List[str]:
+        """
+        Get a list of Excel files in the input directory.
+        
+        Args:
+            file_pattern: File pattern to match (e.g., "*.xlsx")
         
         Returns:
-            Dictionary with execution results
-            
-        Raises:
-            WorkflowError: If the workflow fails completely
+            List of Excel file paths
         """
-        # Get files to process with validation
-        files_to_process = self._get_files_to_process()
+        pattern = os.path.join(self.input_dir, file_pattern)
+        return glob.glob(pattern)
+    
+    def _generate_output_path(self, input_path: str) -> str:
+        """
+        Generate an output file path based on the input file path.
         
-        if not files_to_process:
-            raise WorkflowConfigurationError(
-                "No files found to process",
-                workflow_name="BatchWorkflow",
-                param_name="input_dir, input_files, file_pattern"
-            )
+        Args:
+            input_path: Path to the input file
         
-        logger.info(f"Starting batch processing of {len(files_to_process)} files")
+        Returns:
+            Path to the output file
+        """
+        file_name = Path(input_path).stem
+        output_format = self.get_validated_value('output_format', 'json')
+        return os.path.join(self.output_dir, f"{file_name}.{output_format}")
+    
+    def _create_file_config(self, input_path: str, output_path: str) -> Dict[str, Any]:
+        """
+        Create a configuration for processing a single file.
         
-        # Access batch configuration with validation
-        if isinstance(self.config, ExcelProcessorConfig):
-            max_workers = max(1, min(self.config.batch.max_workers, len(files_to_process)))
-        else:
-            max_workers = max(1, min(getattr(self.config, "max_workers", 4), len(files_to_process)))
+        Args:
+            input_path: Path to the input file
+            output_path: Path to the output file
+            
+        Returns:
+            Configuration dictionary for processing the file
+        """
+        file_config = dict(self.config)
+        file_config['input_file'] = input_path
+        file_config['output_file'] = output_path
+        return file_config
+    
+    def _process_files_sequential(self, files: List[str]) -> Dict[str, Dict[str, Any]]:
+        """
+        Process files sequentially.
         
-        # Start progress reporting
-        self.reporter.start(len(files_to_process), f"Processing {len(files_to_process)} files")
+        Args:
+            files: List of file paths to process
+            
+        Returns:
+            Dictionary mapping file paths to processing results
+        """
+        results = {}
         
-        # Process files concurrently with validation
-        results = []
-        successful_files = []
-        failed_files = []
+        for file_path in files:
+            try:
+                # Generate output file path
+                output_file = self._generate_output_path(file_path)
+                
+                # Create a configuration for this file
+                file_config = self._create_file_config(file_path, output_file)
+                
+                # Process the file with multi-sheet workflow
+                workflow = MultiSheetWorkflow(file_config)
+                workflow.process()
+                
+                # Record the result
+                relative_path = os.path.relpath(file_path, self.input_dir)
+                results[relative_path] = {
+                    "status": "success",
+                    "output_file": output_file
+                }
+                
+            except Exception as e:
+                # Log the error and continue with the next file
+                logger.error(f"Error processing file {file_path}: {str(e)}")
+                
+                # Record the error
+                relative_path = os.path.relpath(file_path, self.input_dir)
+                results[relative_path] = {
+                    "status": "error",
+                    "error": str(e)
+                }
+        
+        return results
+    
+    def _process_files_parallel(self, files: List[str], max_workers: int) -> Dict[str, Dict[str, Any]]:
+        """
+        Process files in parallel.
+        
+        Args:
+            files: List of file paths to process
+            max_workers: Maximum number of worker threads
+        
+        Returns:
+            Dictionary mapping file paths to processing results
+        """
+        results = {}
         
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             # Submit all tasks
-            future_to_file = {
-                executor.submit(self._process_single_file, file_path): file_path
-                for file_path in files_to_process
-            }
+            future_to_file = {}
+            for file_path in files:
+                # Generate output file path
+                output_file = self._generate_output_path(file_path)
+                
+                # Create a configuration for this file
+                file_config = self._create_file_config(file_path, output_file)
+                
+                # Submit the task
+                future = executor.submit(self._process_single_file, file_path, output_file, file_config)
+                future_to_file[future] = file_path
             
             # Process results as they complete
-            for i, future in enumerate(as_completed(future_to_file)):
+            for future in as_completed(future_to_file):
                 file_path = future_to_file[future]
+                relative_path = os.path.relpath(file_path, self.input_dir)
                 
                 try:
                     result = future.result()
-                    results.append(result)
+                    results[relative_path] = result
+        except Exception as e:
+                    # Log the error and continue with the next file
+                    logger.error(f"Error processing file {file_path}: {str(e)}")
                     
-                    # Track successes and failures
-                    if result["status"] == "success":
-                        successful_files.append(file_path)
-                    else:
-                        failed_files.append(file_path)
-                    
-                    # Update progress reporting
-                    self.reporter.update(
-                        i + 1, 
-                        f"Processed {i+1}/{len(files_to_process)} files "
-                        f"({len(successful_files)} succeeded, {len(failed_files)} failed)"
-                    )
-                    
-                except Exception as e:
-                    logger.error(f"Unexpected error processing {file_path}: {str(e)}")
-                    failed_files.append(file_path)
-                    results.append({
-                        "file_path": file_path,
+                    # Record the error
+                    results[relative_path] = {
                         "status": "error",
-                        "error": str(e),
-                        "error_type": type(e).__name__
-                    })
+                        "error": str(e)
+                    }
         
-        # Complete progress reporting
-        if failed_files:
-            self.reporter.finish(
-                f"Batch processing complete: {len(successful_files)} succeeded, {len(failed_files)} failed"
-            )
-        else:
-            self.reporter.finish(f"Batch processing complete: All {len(files_to_process)} files succeeded")
+        return results
+    
+    def _process_single_file(self, file_path: str, output_path: str, file_config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Process a single file.
         
-        # Generate batch summary with validation
-        output_dir = self.get_validated_value("output_dir", None)
-        if output_dir and self.get_validated_value("generate_batch_summary", False):
-            summary_path = os.path.join(output_dir, "batch_summary.json")
-            try:
-                with open(summary_path, 'w') as f:
-                    import json
-                    json.dump({
-                        "total_files": len(files_to_process),
-                        "successful_files": len(successful_files),
-                        "failed_files": len(failed_files),
-                        "results": results
-                    }, f, indent=2)
-                logger.info(f"Generated batch summary at {summary_path}")
-            except Exception as e:
-                logger.error(f"Failed to write batch summary: {str(e)}")
+        Args:
+            file_path: Path to the input file
+            output_path: Path to the output file
+            file_config: Configuration for processing the file
+            
+        Returns:
+            Dictionary with processing results
+        """
+        try:
+            # Process the file with multi-sheet workflow
+            workflow = MultiSheetWorkflow(file_config)
+            workflow.process()
+                
+                return {
+                    "status": "success",
+                "output_file": output_path
+                }
+        except Exception as e:
+            logger.error(f"Error processing file {file_path}: {str(e)}")
+            return {
+                "status": "error",
+                "error": str(e)
+            }
+    
+    @with_error_handling
+    def process(self) -> Dict[str, Any]:
+        """
+        Process all Excel files in a batch.
         
-        # Return result with validated execution metadata
-        return {
-            "status": "success",
-            "total_files": len(files_to_process),
-            "successful_files": successful_files,
-            "failed_files": failed_files,
+        Returns:
+            Dictionary with batch processing results
+        """
+        # Get files to process
+        file_pattern = self.get_validated_value('file_pattern', '*.xlsx')
+        excel_files = self._get_excel_files(file_pattern)
+        
+        if not excel_files:
+            logger.warning(f"No Excel files found in {self.input_dir} matching {file_pattern}")
+            return {"status": "completed", "files_processed": 0, "message": "No files found"}
+            
+            # Ensure output directory exists
+        os.makedirs(self.output_dir, exist_ok=True)
+        
+        # Determine whether to use parallel processing
+        parallel_processing = self.get_validated_value('parallel_processing', False)
+        max_workers = self.get_validated_value('max_workers', 1)
+        
+        # Process files
+        results = {}
+        
+        if parallel_processing and max_workers > 1:
+                # Parallel processing
+                logger.info(f"Using parallel processing with {max_workers} workers")
+            results = self._process_files_parallel(excel_files, max_workers)
+            else:
+                # Sequential processing
+            logger.info("Using sequential processing")
+            results = self._process_files_sequential(excel_files)
+        
+        # Calculate summary statistics
+        total_files = len(excel_files)
+        successful = sum(1 for result in results.values() if result.get("status") == "success")
+        
+        logger.info(f"Batch processing completed: {successful}/{total_files} files processed successfully")
+            
+            return {
+            "status": "completed",
+            "files_processed": successful,
+            "total_files": total_files,
             "results": results
         }
 
 
-# Legacy function for backward compatibility
 def process_batch(
-    input_dir: Optional[str] = None,
-    input_files: Optional[List[str]] = None,
-    output_dir: Optional[str] = None,
-    config: Optional[Any] = None
+    input_dir: str,
+    output_dir: str,
+    config: Any
 ) -> Dict[str, Any]:
     """
-    Process multiple Excel files in batch mode (legacy function).
-    
-    This function provides backward compatibility with the legacy API,
-    creating a BatchWorkflow instance with the given parameters.
+    Process all Excel files in a directory with the given configuration.
     
     Args:
-        input_dir: Directory containing input Excel files
-        input_files: List of paths to input Excel files
-        output_dir: Directory to write output JSON files
+        input_dir: Directory containing Excel files to process
+        output_dir: Directory to save output files
         config: Configuration object or dictionary
         
     Returns:
-        Dictionary with execution results
+        Dictionary with processing results
     """
-    # Support for legacy API with dict-based config
-    if isinstance(config, dict):
-        from config import ExcelProcessorConfig
-        # Convert dict to Pydantic config
-        config = ExcelProcessorConfig.from_dict(config)
-    elif config is None:
-        from config import ExcelProcessorConfig
-        # Create default config
-        config = ExcelProcessorConfig(
-            input_dir=input_dir,
-            input_files=input_files,
-            output_dir=output_dir
-        )
+    # Create a copy of the config to avoid modifying the original
+    if hasattr(config, 'model_copy'):
+        # For Pydantic models
+        workflow_config = config.model_copy(deep=True)
+    else:
+        # For dictionary configs
+        from copy import deepcopy
+        workflow_config = deepcopy(config)
+        
+    # Ensure input and output directories are set in the config
+    if hasattr(workflow_config, 'input_dir'):
+        workflow_config.input_dir = input_dir
+    elif isinstance(workflow_config, dict):
+        workflow_config['input_dir'] = input_dir
+        
+    if hasattr(workflow_config, 'output_dir'):
+        workflow_config.output_dir = output_dir
+    elif isinstance(workflow_config, dict):
+        workflow_config['output_dir'] = output_dir
     
-    # Create and execute workflow
-    workflow = BatchWorkflow(config)
-    return workflow.execute()
+    # Create and run workflow
+    workflow = BatchWorkflow(workflow_config)
+    result = workflow.process()
+    
+    return {
+        "status": "success",
+        "result": result,
+        "input_dir": input_dir,
+        "output_dir": output_dir
+    }

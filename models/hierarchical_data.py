@@ -144,3 +144,29 @@ class HierarchicalDataExtractionOptions(BaseModel):
     class Config:
         """Pydantic configuration for HierarchicalDataExtractionOptions."""
         extra = "ignore"  # Allow extra fields for backward compatibility
+
+
+class MergeInfo(BaseModel):
+    """
+    Information about merged cells.
+    
+    Attributes:
+        is_merged: Whether the cell is part of a merged region
+        merge_range: The range of the merged region
+        is_merge_parent: Whether this cell is the top-left cell of the merged region
+        merge_parent: Position of the top-left cell of the merged region
+        horizontal_span: Number of columns the merged region spans
+        vertical_span: Number of rows the merged region spans
+    """
+    
+    is_merged: bool = Field(False, description="Whether the cell is merged")
+    merge_range: Optional[CellRange] = Field(None, description="Range of the merged region")
+    is_merge_parent: bool = Field(False, description="Whether this cell is the top-left cell of the merged region")
+    merge_parent: Optional[CellPosition] = Field(None, description="Position of the top-left cell of the merged region")
+    horizontal_span: int = Field(1, ge=1, description="Number of columns spanned")
+    vertical_span: int = Field(1, ge=1, description="Number of rows spanned")
+    
+    class Config:
+        """Pydantic configuration for MergeInfo."""
+        arbitrary_types_allowed = True
+        extra = "ignore"  # Allow extra fields for backward compatibility

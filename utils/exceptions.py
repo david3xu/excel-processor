@@ -235,6 +235,45 @@ class WorkflowExecutionError(WorkflowError):
     pass
 
 
+class BatchProcessingError(WorkflowError):
+    """Exception raised for batch processing errors."""
+
+    def __init__(
+        self,
+        message: str,
+        batch_id: Optional[str] = None,
+        processed_files: Optional[int] = None,
+        failed_files: Optional[int] = None,
+        **kwargs: Any,
+    ):
+        details = kwargs.get("details", {})
+        if batch_id is not None:
+            details["batch_id"] = batch_id
+        if processed_files is not None:
+            details["processed_files"] = processed_files
+        if failed_files is not None:
+            details["failed_files"] = failed_files
+        super().__init__(message, workflow_name="batch", details=details)
+
+
+class FileProcessingError(WorkflowError):
+    """Exception raised for individual file processing errors within a batch."""
+
+    def __init__(
+        self,
+        message: str,
+        file_path: Optional[str] = None,
+        sheet_name: Optional[str] = None,
+        **kwargs: Any,
+    ):
+        details = kwargs.get("details", {})
+        if file_path is not None:
+            details["file"] = file_path
+        if sheet_name is not None:
+            details["sheet"] = sheet_name
+        super().__init__(message, workflow_name="file_processing", details=details)
+
+
 # Caching Exceptions
 class CachingError(ExcelProcessorError):
     """Exception raised for caching errors."""

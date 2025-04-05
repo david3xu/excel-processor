@@ -85,65 +85,72 @@ class ContextualLogger:
 
 
 def configure_logging(
-    level: Union[str, int] = "info",
-    log_file: Optional[str] = "excel_processing.log",
-    max_file_size: int = 10 * 1024 * 1024,  # 10 MB
-    backup_count: int = 3,
-    console: bool = True,
+    level: str = "info", 
+    log_file: Optional[str] = None, 
+    console: bool = True
 ) -> None:
     """
-    Configure the logging system for the Excel processor.
-
+    Configure logging for the Excel processor.
+    
     Args:
-        level: Log level (debug, info, warning, error, critical) or a logging level constant
-        log_file: Path to the log file, or None to disable file logging
-        max_file_size: Maximum size in bytes before rotating the log file
-        backup_count: Number of backup log files to keep
-        console: Whether to log to the console
+        level: Log level (debug, info, warning, error, critical)
+        log_file: Path to log file, None for no file logging
+        console: Whether to log to console
     """
-    # Convert string level to logging constant if needed
-    if isinstance(level, str):
-        level = LOG_LEVELS.get(level.lower(), logging.INFO)
-
-    # Create root logger and set level
+    # Map level string to logging level
+    level_map = {
+        "debug": logging.DEBUG,
+        "info": logging.INFO,
+        "warning": logging.WARNING,
+        "error": logging.ERROR,
+        "critical": logging.CRITICAL
+    }
+    log_level = level_map.get(level.lower(), logging.INFO)
+    
+    # Remove existing handlers to avoid duplicate logging
     root_logger = logging.getLogger()
-    root_logger.setLevel(level)
-    root_logger.handlers = []  # Clear existing handlers
-
-    # Create formatters
-    detailed_formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+    
+    # Configure root logger
+    root_logger.setLevel(log_level)
+    
+    # Create formatter
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
-    simple_formatter = logging.Formatter("%(levelname)s - %(message)s")
-
-    # Add file handler if log_file is specified
+    
+    # Add console handler
+    if console:
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(formatter)
+        console_handler.setLevel(log_level)
+        root_logger.addHandler(console_handler)
+    
+    # Add file handler
     if log_file:
-        # Create logs directory if it doesn't exist
+        # Create directory if it doesn't exist
         log_dir = os.path.dirname(log_file)
         if log_dir and not os.path.exists(log_dir):
-            os.makedirs(log_dir)
-
-        file_handler = RotatingFileHandler(
-            log_file, maxBytes=max_file_size, backupCount=backup_count
-        )
-        file_handler.setFormatter(detailed_formatter)
+            os.makedirs(log_dir, exist_ok=True)
+        
+        file_handler = logging.FileHandler(log_file)
+        file_handler.setFormatter(formatter)
+        file_handler.setLevel(log_level)
         root_logger.addHandler(file_handler)
-
-    # Add console handler if console is True
-    if console:
-        console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setFormatter(simple_formatter)
-        root_logger.addHandler(console_handler)
+        
+    # Log that logging has been configured
+    logging.debug(f"Logging configured: level={level}, log_file={log_file}, console={console}")
 
 
-def get_logger(name: str) -> ContextualLogger:
+def get_logger(name: str) -> logging.Logger:
     """
-    Get a contextualized logger with the specified name.
-
+    Get a logger with the specified name.
+    
     Args:
-        name: Name of the logger, typically the module name
-
+        name: Logger name
+        
     Returns:
-        A ContextualLogger instance
+        Logger instance
     """
-    return ContextualLogger(name)
+    return logging.getLogger(name)
