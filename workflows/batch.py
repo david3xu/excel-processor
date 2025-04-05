@@ -218,7 +218,7 @@ class BatchWorkflow(BaseWorkflow):
                 try:
                     result = future.result()
                     results[relative_path] = result
-        except Exception as e:
+                except Exception as e:
                     # Log the error and continue with the next file
                     logger.error(f"Error processing file {file_path}: {str(e)}")
                     
@@ -247,10 +247,10 @@ class BatchWorkflow(BaseWorkflow):
             workflow = MultiSheetWorkflow(file_config)
             workflow.process()
                 
-                return {
-                    "status": "success",
-                "output_file": output_path
-                }
+            return {
+                "status": "success",
+            "output_file": output_path
+            }
         except Exception as e:
             logger.error(f"Error processing file {file_path}: {str(e)}")
             return {
@@ -286,9 +286,9 @@ class BatchWorkflow(BaseWorkflow):
         
         if parallel_processing and max_workers > 1:
                 # Parallel processing
-                logger.info(f"Using parallel processing with {max_workers} workers")
+            logger.info(f"Using parallel processing with {max_workers} workers")
             results = self._process_files_parallel(excel_files, max_workers)
-            else:
+        else:
                 # Sequential processing
             logger.info("Using sequential processing")
             results = self._process_files_sequential(excel_files)
@@ -299,7 +299,7 @@ class BatchWorkflow(BaseWorkflow):
         
         logger.info(f"Batch processing completed: {successful}/{total_files} files processed successfully")
             
-            return {
+        return {
             "status": "completed",
             "files_processed": successful,
             "total_files": total_files,
