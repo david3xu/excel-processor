@@ -27,9 +27,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## Quick Start - Streaming
-
-For processing large Excel files with minimal memory usage, use the streaming mode:
+## Quick Start
 
 1. **Setup your environment**
 
@@ -48,93 +46,41 @@ source .venv/bin/activate  # Linux/Mac
 pip install -r requirements.txt
 ```
 
-2. **Basic processing with header detection**
+2. **Single File Processing**
 
 ```bash
-# DEFAULT COMMAND: Process a file with automatic metadata and header detection (recommended)
-python cli.py single -i data/input/sample.xlsx -o data/output/result.json
+# Process a single file (default first sheet)
+python cli.py single -i data/input/complex_headers_test.xlsx -o data/output/output.json
 
-# Process with explicit header detection options
-python cli.py single -i data/input/sample.xlsx -o data/output/result.json --include-headers --metadata-max-rows=5
+# Process a specific sheet
+python cli.py single -i data/input/complex_headers_test.xlsx -s "Sheet Name" -o data/output/output.json
 
-# Process with raw grid data (preserves original Excel structure)
-python cli.py single -i data/input/sample.xlsx -o data/output/result_with_grid.json --include-headers --include-raw-grid
-
-# Process complex headers (multi-level headers, merged cells)
-python cli.py single -i data/input/complex_structure.xlsx -o data/output/complex_result.json --multi-level-header-detection
+# Include headers in output and enable debug logging
+python cli.py single -i data/input/complex_headers_test.xlsx -o data/output/output.json --include-headers --log-level debug
 ```
 
-**Note:** By default, the processor automatically detects metadata and headers without requiring additional flags. The `--include-headers` flag is enabled by default, and metadata detection examines the first 6 rows of each sheet. These defaults work well for most Excel files.
-
-3. **Basic streaming processing**
+3. **Multi-Sheet Processing**
 
 ```bash
-# Process a large Excel file with streaming mode
-python cli.py single -i data/input/large_file.xlsx -o data/output/result.json --streaming
+# Process all sheets in a file
+python cli.py multi -i data/input/complex_headers_test.xlsx -o data/output/multi_output.json
+
+# Process specific sheets
+python cli.py multi -i data/input/complex_headers_test.xlsx -o data/output/specific_sheets.json -s "Sheet1" "Sheet2"
+
+# Include raw grid data in output
+python cli.py multi -i data/input/complex_headers_test.xlsx -o data/output/multi_raw_grid.json --include-raw-grid
 ```
 
-4. **Add checkpointing for resumable processing**
+4. **Batch Processing**
 
 ```bash
-# Enable checkpointing to resume if processing is interrupted
-python cli.py single -i data/input/large_file.xlsx -o data/output/result.json --streaming --use-checkpoints
+# Process all Excel files in a directory
+python cli.py batch -i data/input -o data/output/batch
+
+# Enable logging to a specific file
+python cli.py batch -i data/input -o data/output/batch --log-file data/logs/batch_processing.log
 ```
-
-5. **Resume from a previous checkpoint**
-
-```bash
-# List available checkpoints
-python cli.py --list-checkpoints
-
-# Resume processing using a checkpoint ID from the list
-python cli.py single -i data/input/large_file.xlsx -o data/output/result.json --streaming --resume cp_large_file_1234567890_abcd1234
-```
-
-6. **Customize streaming behavior**
-
-```bash
-# Adjust memory usage and chunk size
-python cli.py single -i data/input/large_file.xlsx -o data/output/result.json --streaming \
-  --streaming-chunk-size 2000 --memory-threshold 0.7
-```
-
-7. **Multi-sheet processing**
-
-```bash
-# DEFAULT COMMAND: Process all sheets from one file with automatic header detection
-python cli.py multi -i data/input/multi_sheet.xlsx -o data/output/multi_result.json
-
-# Process all sheets with raw grid preservation
-python cli.py multi -i data/input/multi_sheet.xlsx -o data/output/multi_result_with_grid.json --include-raw-grid
-
-# Process specific sheets only
-python cli.py multi -i data/input/multi_sheet.xlsx -o data/output/selected_sheets.json -s "Sheet1" "Sheet3"
-
-# Process all sheets with streaming for large files
-python cli.py multi -i data/input/large_file.xlsx -o data/output/result.json --streaming --use-checkpoints
-```
-
-8. **Batch processing**
-
-```bash
-# DEFAULT COMMAND: Process all Excel files in a directory with automatic header detection
-python cli.py batch -i data/input -o data/output
-
-# Process all Excel files with raw grid preservation
-python cli.py batch -i data/input -o data/output --include-raw-grid
-
-# Batch processing with parallel execution
-python cli.py batch -i data/input -o data/output --parallel --workers 4
-
-# Batch processing with streaming for large files
-python cli.py batch -i data/input -o data/output --streaming --use-checkpoints
-```
-
-Key streaming options:
-- `--streaming-chunk-size`: Number of rows to process in each chunk (default: 1000)
-- `--memory-threshold`: Memory usage threshold (0.0-1.0) for dynamic chunk sizing (default: 0.8)
-- `--checkpoint-interval`: Create checkpoint after every N chunks (default: 5)
-- `--checkpoint-dir`: Directory to store checkpoint files (default: data/checkpoints)
 
 ## Magic Commands
 
@@ -207,67 +153,78 @@ excel-processor/
 └── workflows/               # Processing workflows
 ```
 
-## Usage
+## Command Line Interface (CLI)
 
-### Command Line Interface
+The Excel Processor provides a command-line interface with three processing modes:
+
+### Single File Processing
+
+Process a single Excel file with optional sheet selection:
+
+```bash
+# Process a single file (default first sheet)
+python cli.py single -i data/input/complex_headers_test.xlsx -o data/output/output.json
+
+# Process a specific sheet
+python cli.py single -i data/input/complex_headers_test.xlsx -s "Sheet Name" -o data/output/output.json
+
+# Include headers in output and enable debug logging
+python cli.py single -i data/input/complex_headers_test.xlsx -o data/output/output.json --include-headers --log-level debug
+```
+
+### Multi-Sheet Processing
+
+Process multiple sheets from a single Excel file:
+
+```bash
+# Process all sheets in a file
+python cli.py multi -i data/input/complex_headers_test.xlsx -o data/output/multi_output.json
+
+# Process specific sheets
+python cli.py multi -i data/input/complex_headers_test.xlsx -o data/output/specific_sheets.json -s "Sheet1" "Sheet2"
+
+# Include raw grid data in output
+python cli.py multi -i data/input/complex_headers_test.xlsx -o data/output/multi_raw_grid.json --include-raw-grid
+```
+
+### Batch Processing
+
+Process multiple Excel files in a directory:
+
+```bash
+# Process all Excel files in a directory
+python cli.py batch -i data/input -o data/output/batch
+
+# Enable logging to a specific file
+python cli.py batch -i data/input -o data/output/batch --log-file data/logs/batch_processing.log
+```
+
+### Common Options for All Modes
+
+All processing modes support these options:
+
+```
+--log-level {debug,info,warning,error,critical}  Set logging level (default: info)
+--log-file LOG_FILE                              Log file path (default: data/logs/excel_processing.log)
+--include-headers                                Include headers in output
+--include-raw-grid                               Include raw grid data in output
+```
+
+### CLI Usage Notes
 
 There are two ways to run the processor:
 
-1.  **If installed via pip:** Use the `excel-processor` command.
-2.  **Directly via Python:** Run the `cli.py` script (useful for development).
+1. **If installed via pip:** Use the `excel-processor` command.
+2. **Directly via Python:** Run the `cli.py` script (useful for development).
 
 Make sure your virtual environment is activated (`source .venv/bin/activate`) if running directly.
 
-**Examples:**
-
+For a complete list of options:
 ```bash
-# --- Process a single Excel file (first sheet by default) --- 
-# Using installed command:
-excel-processor single -i data/input/input.xlsx -o data/output/output_single.json
-# Running script directly:
-python cli.py single -i data/input/input.xlsx -o data/output/output_single.json
-
-# Specify a sheet:
-python cli.py single -i data/input/input.xlsx -o data/output/output_sheet2.json -s "Sheet2"
-
-# --- Process with streaming mode for large files ---
-python cli.py single -i data/input/large_file.xlsx -o data/output/large_file.json --streaming
-
-# --- Enable checkpointing for resumable processing ---
-python cli.py single -i data/input/large_file.xlsx -o data/output/large_file.json --streaming --use-checkpoints
-
-# --- Resume processing from a checkpoint ---
-python cli.py single -i data/input/large_file.xlsx -o data/output/large_file.json --streaming --resume checkpoint_id
-
-# --- List available checkpoints ---
-python cli.py --list-checkpoints
-
-# --- Process multiple sheets from one file into a single JSON --- 
-# Using installed command:
-excel-processor multi -i data/input/input.xlsx -o data/output/output_multi.json
-# Running script directly:
-python cli.py multi -i data/input/input.xlsx -o data/output/output_multi.json
-
-
-python cli.py multi -i data/input/knowledge_graph_test_data.xlsx -o data/output/knowledge_graph_test_data.json
-
-
-# Specify specific sheets for multi:
-python cli.py multi -i data/input/input.xlsx -o data/output/output_multi_specific.json -s "Sheet1" "Sheet3"
-
-# --- Process all Excel files in a directory (batch mode) --- 
-# Using installed command:
-excel-processor batch -i data/input -o data/output --cache
-# Running script directly:
-python cli.py batch -i data/input -o data/output --cache
-
-# Batch mode with parallel processing:
-python cli.py batch -i data/input -o data/output --parallel --workers 8
+python cli.py --help
 ```
 
-See `python cli.py --help` for all options.
-
-### Python API
+## Python API
 
 ```python
 from workflows.single_file import process_single_file

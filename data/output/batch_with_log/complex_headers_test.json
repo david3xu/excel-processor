@@ -1,0 +1,229 @@
+{
+  "file_path": "data/input/complex_headers_test.xlsx",
+  "sheet_names": [
+    "Multi-level Headers",
+    "Mixed Data Types",
+    "Irregular Headers",
+    "Sparse Data"
+  ],
+  "sheets": {
+    "Multi-level Headers": {
+      "name": "Multi-level Headers",
+      "row_count": 12,
+      "column_count": 8,
+      "records": [
+        {
+          "Column 1": "Plant Operations Data Report"
+        },
+        {
+          "Column 1": "Report Date:",
+          "Units": "2025-04-05T00:00:00"
+        },
+        {
+          "Column 1": "Equipment ID",
+          "Units": "Production Metrics",
+          "ppm": "Quality Metrics",
+          "Hours": "Maintenance"
+        },
+        {
+          "Units": "Daily Output",
+          "%": "Efficiency",
+          "ppm": "Defect Rate",
+          "1-5": "Quality Score",
+          "Hours": "Downtime",
+          "$": "Maintenance Cost"
+        },
+        {
+          "Column 1": "EQ-001",
+          "Units": 547,
+          "Weight (kg)": 2735,
+          "%": 92.5,
+          "ppm": 350,
+          "1-5": 4.2,
+          "Hours": 3.5,
+          "$": 1250.75
+        },
+        {
+          "Column 1": "EQ-002",
+          "Units": 423,
+          "Weight (kg)": 2115,
+          "%": 88.7,
+          "ppm": 420,
+          "1-5": 3.8,
+          "Hours": 5.2,
+          "$": 1875.5
+        },
+        {
+          "Column 1": "EQ-003",
+          "Units": 612,
+          "Weight (kg)": 3060,
+          "%": 95.2,
+          "ppm": 175,
+          "1-5": 4.7,
+          "Hours": 1.8,
+          "$": 920.25
+        },
+        {
+          "Column 1": "EQ-004",
+          "Units": 380,
+          "Weight (kg)": 1900,
+          "%": 86.3,
+          "ppm": 510,
+          "1-5": 3.3,
+          "Hours": 8.7,
+          "$": 2340.8
+        },
+        {
+          "Column 1": "EQ-005",
+          "%": 90.1,
+          "ppm": 280,
+          "1-5": 4,
+          "Hours": 4.5,
+          "$": 1500
+        },
+        {
+          "Column 1": "EQ-006",
+          "Units": 530,
+          "Weight (kg)": 2650,
+          "Hours": 2.3,
+          "$": 1150.4
+        }
+      ]
+    },
+    "Mixed Data Types": {
+      "name": "Mixed Data Types",
+      "row_count": 6,
+      "column_count": 7,
+      "records": [
+        {
+          "Text Header": "Mixed Data Types Example"
+        },
+        {
+          "Text Header": "Sample 1",
+          "123": 42,
+          "2025-04-05 00:00:00": "2024-01-15T00:00:00",
+          "True": true,
+          "Column 5": 123.45,
+          "0.25": 0.75,
+          "#N/A": "Value"
+        },
+        {
+          "Text Header": "Sample 2",
+          "123": 18,
+          "2025-04-05 00:00:00": "2024-02-20T00:00:00",
+          "True": false,
+          "Column 5": 67.89,
+          "0.25": 0.3,
+          "#N/A": "Test"
+        },
+        {
+          "Text Header": "Sample 3",
+          "123": 93,
+          "2025-04-05 00:00:00": "2024-03-10T00:00:00",
+          "True": true,
+          "Column 5": 456.78,
+          "0.25": 0.15
+        },
+        {
+          "Text Header": "Sample 4",
+          "123": 27,
+          "2025-04-05 00:00:00": "2024-04-05T00:00:00",
+          "True": false,
+          "Column 5": 234.56,
+          "0.25": 0.5,
+          "#N/A": "Data"
+        }
+      ]
+    },
+    "Irregular Headers": {
+      "name": "Irregular Headers",
+      "row_count": 7,
+      "column_count": 7,
+      "records": [
+        {
+          "North America": "Canada",
+          "Europe": "France"
+        },
+        {
+          "North America": "Q1",
+          "Europe": "Q1"
+        },
+        {
+          "Region": "Product A",
+          "North America": 150,
+          "Europe": 140
+        },
+        {
+          "Region": "Product B",
+          "North America": 155,
+          "Europe": 147
+        },
+        {
+          "Region": "Product C",
+          "North America": 160,
+          "Europe": 154
+        },
+        {
+          "Region": "Product D",
+          "North America": 165,
+          "Europe": 161
+        }
+      ]
+    },
+    "Sparse Data": {
+      "name": "Sparse Data",
+      "row_count": 7,
+      "column_count": 7,
+      "records": [
+        {
+          "Column 1": "Metric",
+          "January": "Value",
+          "Column 3": "Change",
+          "February": "Value",
+          "Column 5": "Change",
+          "March": "Value",
+          "Column 7": "Change"
+        },
+        {
+          "Column 1": "Revenue",
+          "January": 12500,
+          "Column 3": "+5%",
+          "February": 13200,
+          "Column 5": "+6%",
+          "March": 14100,
+          "Column 7": "+7%"
+        },
+        {
+          "Column 1": "Costs",
+          "January": 8200,
+          "Column 3": "+3%",
+          "March": 8500,
+          "Column 7": "+4%"
+        },
+        {
+          "Column 1": "Profit",
+          "January": 4300,
+          "Column 3": "+8%",
+          "February": 4700,
+          "Column 5": "+9%"
+        },
+        {
+          "Column 1": "Units Sold",
+          "February": 1050,
+          "Column 5": "+12%",
+          "March": 1150,
+          "Column 7": "+10%"
+        },
+        {
+          "Column 1": "Returns",
+          "January": 120,
+          "Column 3": "-2%",
+          "February": 115,
+          "Column 5": "-4%",
+          "March": 105,
+          "Column 7": "-8%"
+        }
+      ]
+    }
+  }
+}
