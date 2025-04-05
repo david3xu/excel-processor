@@ -1,317 +1,158 @@
 """
-Formatter for Excel processor output.
-Creates the output structure with metadata and hierarchical data.
+Output formatter for Excel data.
+
+This module provides formatting functionality to convert Excel data models 
+into various output formats like JSON, dict, CSV, etc. with header handling.
 """
 
-from typing import Any, Dict, List, Optional
+import json
+from typing import Any, Dict, List, Optional, Union
+import logging
+from datetime import datetime
+import csv
+import io
 
-from models.hierarchical_data import HierarchicalData
-from models.metadata import Metadata
-from utils.exceptions import FormattingError
-from utils.logging import get_logger
+from models.excel_data import WorkbookData, WorksheetData
 
-logger = get_logger(__name__)
-
+logger = logging.getLogger(__name__)
 
 class OutputFormatter:
     """
-    Formatter for creating the output structure.
-    Combines metadata and hierarchical data into a consistent format.
+    Formats Excel data for output in various formats.
+    
+    This class handles the conversion of Excel data models into
+    output formats like JSON, Python dictionaries, CSV, etc.
     """
     
-    def __init__(self, include_structure_metadata: bool = False):
+    def __init__(self, include_headers: bool = True, include_raw_grid: bool = False):
         """
-        Initialize the output formatter.
+        Initialize the formatter with formatting options.
         
         Args:
-            include_structure_metadata: Whether to include structure metadata
-                in the output (e.g., merge info, positions)
+            include_headers: Whether to include headers in the output
+            include_raw_grid: Whether to include raw grid data in the output
         """
-        self.include_structure_metadata = include_structure_metadata
+        self.include_headers = include_headers
+        self.include_raw_grid = include_raw_grid
     
-    def format_output(
-        self,
-        metadata: Metadata,
-        data: HierarchicalData,
-        sheet_name: Optional[str] = None
-    ) -> Dict[str, Any]:
+    def format_as_dict(self, workbook_data: WorkbookData) -> Dict[str, Any]:
         """
-        Format metadata and hierarchical data into output structure.
+        Format workbook data as a Python dictionary.
         
         Args:
-            metadata: Metadata instance
-            data: HierarchicalData instance
-            sheet_name: Optional sheet name for multi-sheet outputs
+            workbook_data: WorkbookData model to format
             
         Returns:
-            Dictionary with formatted output
-            
-        Raises:
-            FormattingError: If formatting fails
+            Dictionary representation of the workbook data
         """
-        try:
-            logger.info(f"Formatting output for sheet: {sheet_name or 'default'}")
-            
-            # Create the output structure
-            result = {
-                "metadata": metadata.to_dict(),
-                "data": data.to_list(include_metadata=self.include_structure_metadata)
-            }
-            
-            # Add columns if available
-            if data.columns:
-                logger.debug(f"Formatter received: data.columns id: {id(data.columns)}")
-                result["columns"] = data.columns
-                logger.debug(f"Formatter assigned: result['columns'] id: {id(result['columns'])}")
-            
-            # Add sheet name if provided
-            if sheet_name:
-                result["sheet_name"] = sheet_name
-            
-            # --- DEBUG --- 
-            logger.debug(f"Formatter result columns: {result.get('columns')}")
-            if result.get('data'):
-                 logger.debug(f"Formatter first data record: {result['data'][0]}")
-            else:
-                 logger.debug("Formatter: No data records found.")
-            # --- END DEBUG ---
-            
-            logger.info(
-                f"Formatted output with {len(result['metadata'])} metadata sections "
-                f"and {len(result['data'])} data records"
-            )
-            
-            return result
-        except Exception as e:
-            error_msg = f"Failed to format output: {str(e)}"
-            logger.error(error_msg)
-            raise FormattingError(error_msg) from e
+        return workbook_data.to_dict(
+            include_headers=self.include_headers,
+            include_raw_grid=self.include_raw_grid
+        )
     
-    def format_chunk(
-        self,
-        chunk_data: HierarchicalData,
-        chunk_index: int,
-        sheet_name: Optional[str] = None
-    ) -> Dict[str, Any]:
+    def format_as_json(self, workbook_data: WorkbookData) -> str:
         """
-        Format a chunk of data for streaming output.
+        Format workbook data as a JSON string.
         
         Args:
-            chunk_data: HierarchicalData instance for the current chunk
-            chunk_index: Index of the current chunk (0-based)
-            sheet_name: Optional sheet name
+            workbook_data: WorkbookData model to format
             
         Returns:
-            Dictionary with formatted chunk data
-            
-        Raises:
-            FormattingError: If formatting fails
+            JSON string representation of the workbook data
         """
-        try:
-            logger.info(f"Formatting chunk {chunk_index} for sheet: {sheet_name or 'default'}")
-            
-            # Create the chunk structure
-            result = {
-                "chunk_index": chunk_index,
-                "data": chunk_data.to_list(include_metadata=self.include_structure_metadata)
-            }
-            
-            # Add columns to the first chunk
-            if chunk_index == 0 and chunk_data.columns:
-                result["columns"] = chunk_data.columns
-            
-            # Add sheet name if provided
-            if sheet_name:
-                result["sheet_name"] = sheet_name
-            
-            logger.info(f"Formatted chunk {chunk_index} with {len(result['data'])} data records")
-            
-            return result
-        except Exception as e:
-            error_msg = f"Failed to format chunk: {str(e)}"
-            logger.error(error_msg)
-            raise FormattingError(error_msg) from e
+        # Convert to dictionary first
+        data_dict = self.format_as_dict(workbook_data)
+        
+        # Use custom serializer for types like datetime
+        def json_serializer(obj):
+            if isinstance(obj, datetime):
+                return obj.isoformat()
+            raise TypeError(f"Type {type(obj)} not serializable")
+        
+        # Convert to JSON string
+        return json.dumps(data_dict, default=json_serializer, indent=2)
     
-    def format_multi_sheet_output(
-        self,
-        sheets_data: Dict[str, Dict[str, Any]]
-    ) -> Dict[str, Any]:
+    def format_sheet_as_csv(self, sheet_data: WorksheetData) -> str:
         """
-        Format multi-sheet data into output structure.
+        Format a single worksheet as CSV.
         
         Args:
-            sheets_data: Dictionary mapping sheet names to formatted output
+            sheet_data: WorksheetData model to format
             
         Returns:
-            Dictionary with formatted multi-sheet output
-            
-        Raises:
-            FormattingError: If formatting fails
+            CSV string representation of the worksheet data
         """
-        try:
-            logger.info(f"Formatting multi-sheet output with {len(sheets_data)} sheets")
-            
-            # Create the output structure
-            result = {
-                "sheets": sheets_data
-            }
-            
-            # Add summary information
-            summary = {
-                "sheet_count": len(sheets_data),
-                "total_records": sum(len(sheet_data["data"]) for sheet_data in sheets_data.values())
-            }
-            result["summary"] = summary
-            
-            logger.info(
-                f"Formatted multi-sheet output with {summary['sheet_count']} sheets "
-                f"and {summary['total_records']} total records"
-            )
-            
-            return result
-        except Exception as e:
-            error_msg = f"Failed to format multi-sheet output: {str(e)}"
-            logger.error(error_msg)
-            raise FormattingError(error_msg) from e
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        # Get the raw grid with headers if requested
+        grid = sheet_data.get_raw_grid(include_headers=self.include_headers)
+        
+        # Write each row to the CSV writer
+        for row in grid:
+            writer.writerow(row)
+        
+        return output.getvalue()
     
-    def format_streaming_sheet_metadata(
-        self,
-        metadata: Metadata,
-        sheet_name: Optional[str] = None,
-        total_rows_estimated: int = 0
-    ) -> Dict[str, Any]:
+    def format_as_records(self, workbook_data: WorkbookData) -> Dict[str, List[Dict[str, Any]]]:
         """
-        Format metadata for a streaming sheet output.
-        This creates the initial structure for a streaming output file.
+        Format workbook data as a dictionary of records.
+        
+        Each sheet is converted to a list of records, where each record
+        is a dictionary with header names as keys.
         
         Args:
-            metadata: Metadata instance
-            sheet_name: Optional sheet name
-            total_rows_estimated: Estimated number of rows (for progress tracking)
+            workbook_data: WorkbookData model to format
             
         Returns:
-            Dictionary with formatted metadata
-            
-        Raises:
-            FormattingError: If formatting fails
+            Dictionary mapping sheet names to lists of records
         """
-        try:
-            logger.info(f"Formatting streaming metadata for sheet: {sheet_name or 'default'}")
-            
-            # Create the output structure
-            result = {
-                "metadata": metadata.to_dict(),
-                "streaming": True,
-                "estimated_total_rows": total_rows_estimated,
-                "chunks_appended": 0,
-                "data": []  # Empty array to be filled by subsequent chunks
-            }
-            
-            # Add sheet name if provided
-            if sheet_name:
-                result["sheet_name"] = sheet_name
-            
-            logger.info(f"Formatted streaming metadata with {len(result['metadata'])} sections")
-            
-            return result
-        except Exception as e:
-            error_msg = f"Failed to format streaming metadata: {str(e)}"
-            logger.error(error_msg)
-            raise FormattingError(error_msg) from e
+        result = {}
+        
+        for sheet_name, sheet_data in workbook_data.sheets.items():
+            result[sheet_name] = sheet_data.to_records()
+        
+        return result
     
-    def format_streaming_completion(
-        self,
-        total_chunks: int,
-        total_records: int,
-        sheet_name: Optional[str] = None
-    ) -> Dict[str, Any]:
+    def format_as_tables(self, workbook_data: WorkbookData) -> Dict[str, Dict[str, Any]]:
         """
-        Format completion info for a streaming output.
+        Format workbook data as a dictionary of tables.
+        
+        Each sheet is converted to a table structure with headers
+        and data rows separately.
         
         Args:
-            total_chunks: Total number of chunks processed
-            total_records: Total number of records processed
-            sheet_name: Optional sheet name
+            workbook_data: WorkbookData model to format
             
         Returns:
-            Dictionary with completion information
-            
-        Raises:
-            FormattingError: If formatting fails
+            Dictionary mapping sheet names to table structures
         """
-        try:
-            logger.info(f"Formatting streaming completion for sheet: {sheet_name or 'default'}")
-            
-            # Create the completion info
-            result = {
-                "streaming_complete": True,
-                "total_chunks": total_chunks,
-                "total_records": total_records
-            }
-            
-            if sheet_name:
-                result["sheet_name"] = sheet_name
-            
-            logger.info(f"Formatted streaming completion info: {total_records} records in {total_chunks} chunks")
-            
-            return result
-        except Exception as e:
-            error_msg = f"Failed to format streaming completion: {str(e)}"
-            logger.error(error_msg)
-            raise FormattingError(error_msg) from e
-            
-    def format_batch_summary(
-        self,
-        batch_results: Dict[str, Dict[str, Any]]
-    ) -> Dict[str, Any]:
-        """
-        Format batch processing summary.
+        result = {}
         
-        Args:
-            batch_results: Dictionary mapping file names to processing results
+        for sheet_name, sheet_data in workbook_data.sheets.items():
+            headers = list(sheet_data.get_headers().values()) if self.include_headers else []
             
-        Returns:
-            Dictionary with formatted batch summary
+            # Convert data rows to lists in column order
+            data_rows = []
+            for row_idx in range(1, sheet_data.row_count + 1):
+                # Skip header row
+                if sheet_data.header_row and row_idx == sheet_data.header_row.row_index:
+                    continue
+                
+                row = sheet_data.get_row(row_idx)
+                if row:
+                    data_row = []
+                    for col_idx in range(1, sheet_data.column_count + 1):
+                        data_row.append(row.get_value(col_idx))
+                    data_rows.append(data_row)
             
-        Raises:
-            FormattingError: If formatting fails
-        """
-        try:
-            logger.info(f"Formatting batch summary for {len(batch_results)} files")
-            
-            # Count successes and failures
-            success_count = 0
-            failure_count = 0
-            total_records = 0
-            
-            for result in batch_results.values():
-                if result.get("status") == "success":
-                    success_count += 1
-                    total_records += result.get("data_rows", 0)
-                else:
-                    failure_count += 1
-            
-            # Create the summary
-            summary = {
-                "file_count": len(batch_results),
-                "success_count": success_count,
-                "failure_count": failure_count,
-                "total_records": total_records
+            result[sheet_name] = {
+                "headers": headers,
+                "data": data_rows
             }
             
-            # Create the output structure
-            result = {
-                "summary": summary,
-                "results": batch_results
-            }
-            
-            logger.info(
-                f"Formatted batch summary with {summary['success_count']} successes "
-                f"and {summary['failure_count']} failures"
-            )
-            
-            return result
-        except Exception as e:
-            error_msg = f"Failed to format batch summary: {str(e)}"
-            logger.error(error_msg)
-            raise FormattingError(error_msg) from e
+            # Include metadata if available
+            if hasattr(sheet_data, "metadata") and sheet_data.metadata:
+                result[sheet_name]["metadata"] = sheet_data.metadata
+        
+        return result

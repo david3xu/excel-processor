@@ -3,15 +3,16 @@ Data extractor for Excel files.
 Extracts hierarchical data while respecting merged cells and structure.
 """
 
-from typing import Any, Dict, List, Optional, Set, Tuple, Union, Generator
+from typing import Any, Dict, List, Optional, Set, Tuple, Union, Generator, Callable
 
 import os
 import psutil
 import openpyxl
 import pandas as pd
 from openpyxl.worksheet.worksheet import Worksheet
+from pydantic import BaseModel, Field
 
-from core.reader import ExcelReader
+from core.reader import ExcelReader, RowData, WorksheetData
 from models.excel_structure import (CellPosition, SheetStructure)
 from models.hierarchical_data import (HierarchicalData,
                                                     HierarchicalDataItem,
@@ -19,20 +20,271 @@ from models.hierarchical_data import (HierarchicalData,
                                                     MergeInfo)
 from utils.exceptions import DataExtractionError, HierarchicalDataError, MemoryError
 from utils.logging import get_logger
+from utils.performance import selective_validation, StreamingValidator
 
 logger = get_logger(__name__)
 
 
+class ExtractionError(Exception):
+    """Exception raised during data extraction."""
+    pass
+
+
+class DataChunk(BaseModel):
+    """
+    Model for a chunk of data extracted during streaming processing.
+    
+    Attributes:
+        chunk_index: Index of this chunk in the overall extraction
+        rows: List of row data in this chunk
+        is_final: Whether this is the final chunk of data
+    """
+    chunk_index: int = Field(..., description="Index of this chunk in the overall extraction")
+    rows: List[RowData] = Field(default_factory=list, description="List of row data in this chunk")
+    is_final: bool = Field(False, description="Whether this is the final chunk of data")
+
+
+class StreamingDataExtractor:
+    """
+    Extracts data from Excel files in a memory-efficient streaming manner.
+    
+    This class provides optimized extraction of data from large Excel files
+    with memory usage optimization and validation controls for performance.
+    
+    Attributes:
+        chunk_size: Number of rows to process in each chunk
+        validator: Streaming validator for performance optimization
+    """
+    
+    def __init__(self, chunk_size: int = 1000):
+        """
+        Initialize the streaming data extractor.
+        
+        Args:
+            chunk_size: Number of rows to process in each chunk
+        """
+        self.chunk_size = chunk_size
+        self.validator = StreamingValidator(
+            model_class=RowData,
+            validation_interval=20  # Validate every 20th row
+        )
+    
+    def extract_from_worksheet(
+        self,
+        reader: Any,
+        sheet: Any,
+        min_row: int = 1,
+        max_row: Optional[int] = None,
+        skip_empty: bool = True
+    ) -> Generator[DataChunk, None, None]:
+        """
+        Extract data from a worksheet in chunks.
+        
+        This method streams data from a worksheet, processing it in chunks
+        to optimize memory usage while applying validation controls.
+        
+        Args:
+            reader: Excel reader instance
+            sheet: Worksheet object from the reader
+            min_row: Minimum row index to include (1-based)
+            max_row: Maximum row index to include (1-based)
+            skip_empty: Whether to skip empty rows
+            
+        Yields:
+            DataChunk objects containing processed rows
+        """
+        chunk_index = 0
+        has_more_chunks = True
+        
+        while has_more_chunks:
+            # Process rows in chunks using the reader's iter_rows method
+            try:
+                rows_processed = 0
+                chunk_rows = []
+                
+                # Get the next chunk of rows
+                for row_batch in reader.iter_rows(
+                    sheet,
+                    min_row=min_row + (chunk_index * self.chunk_size),
+                    max_row=min(
+                        min_row + ((chunk_index + 1) * self.chunk_size - 1),
+                        max_row or float('inf')
+                    ),
+                    skip_empty=skip_empty,
+                    chunk_size=self.chunk_size
+                ):
+                    # Add rows to the current chunk
+                    chunk_rows.extend(row_batch)
+                    rows_processed += len(row_batch)
+                    
+                    # Stop if we've reached our chunk size
+                    if rows_processed >= self.chunk_size:
+                        break
+                
+                # Check if we've processed any rows
+                if not chunk_rows:
+                    # No more rows to process
+                    has_more_chunks = False
+                    continue
+                
+                # Create and yield the data chunk
+                is_final = False
+                if (
+                    (max_row is not None and min_row + ((chunk_index + 1) * self.chunk_size) > max_row) or
+                    rows_processed < self.chunk_size
+                ):
+                    is_final = True
+                    has_more_chunks = False
+                
+                yield DataChunk(
+                    chunk_index=chunk_index,
+                    rows=chunk_rows,
+                    is_final=is_final
+                )
+                
+                # Move to the next chunk
+                chunk_index += 1
+                min_row += rows_processed
+            
+            except Exception as e:
+                logger.error(f"Error extracting data: {e}")
+                raise ExtractionError(f"Failed to extract data from worksheet: {str(e)}") from e
+    
+    def process_worksheet(
+        self,
+        reader: Any,
+        sheet: Any,
+        output_handler: Optional[Callable[[DataChunk], None]] = None,
+        skip_empty: bool = True,
+        min_row: int = 1,
+        max_row: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """
+        Process an entire worksheet with streaming extraction.
+        
+        This method processes a worksheet by extracting data in chunks and
+        optionally passing each chunk to an output handler function.
+        
+        Args:
+            reader: Excel reader instance
+            sheet: Worksheet object from the reader
+            output_handler: Function to call with each data chunk
+            skip_empty: Whether to skip empty rows
+            min_row: Minimum row index to include (1-based)
+            max_row: Maximum row index to include (1-based)
+            
+        Returns:
+            Dictionary with processing statistics
+        """
+        chunk_count = 0
+        row_count = 0
+        
+        # Begin extraction
+        logger.info(f"Starting streaming extraction with chunk size {self.chunk_size}")
+        
+        # Get sheet name
+        sheet_name = None
+        if hasattr(sheet, 'title'):
+            sheet_name = sheet.title
+        elif isinstance(sheet, str):
+            sheet_name = sheet
+        
+        for chunk in self.extract_from_worksheet(
+            reader, sheet, min_row=min_row, max_row=max_row, skip_empty=skip_empty
+        ):
+            # Count rows and chunks
+            chunk_count += 1
+            row_count += len(chunk.rows)
+            
+            # Call output handler if provided
+            if output_handler:
+                output_handler(chunk)
+            
+            logger.info(f"Processed chunk {chunk_count} with {len(chunk.rows)} rows")
+        
+        # Return statistics
+        return {
+            "sheet_name": sheet_name,
+            "chunk_count": chunk_count,
+            "row_count": row_count,
+            "status": "success"
+        }
+
+
 class DataExtractor:
     """
-    Extractor for hierarchical data from Excel files.
-    Handles merged cells and preserves hierarchical relationships.
+    Extracts data from workbooks using memory-efficient techniques.
+    
+    This class provides methods for extracting data from Excel workbooks
+    and applying validation rules during the extraction process.
     """
     
-    def __init__(self):
-        """Initialize the data extractor."""
-        pass
+    def __init__(self, performance_mode: bool = True):
+        """
+        Initialize the data extractor.
+        
+        Args:
+            performance_mode: Whether to optimize for performance
+        """
+        self.performance_mode = performance_mode
     
+    def extract_worksheet_data(
+        self,
+        reader: Any,
+        sheet_name: Optional[str] = None,
+        include_empty_rows: bool = False
+    ) -> WorksheetData:
+        """
+        Extract data from a worksheet.
+        
+        This method extracts data from a worksheet and validates it
+        according to our data models.
+        
+        Args:
+            reader: Excel reader instance
+            sheet_name: Name of the sheet to extract, or None for the first sheet
+            include_empty_rows: Whether to include empty rows
+            
+        Returns:
+            WorksheetData object with extracted and validated data
+        """
+        try:
+            # Get the sheet
+            sheet = reader.get_sheet(sheet_name)
+            
+            # Create worksheet model
+            worksheet_data = reader.create_worksheet_model(
+                sheet,
+                include_empty_rows=include_empty_rows,
+                performance_mode=self.performance_mode
+            )
+            
+            logger.info(
+                f"Extracted {worksheet_data.row_count} rows from sheet "
+                f"{worksheet_data.name}"
+            )
+            
+            return worksheet_data
+        
+        except Exception as e:
+            logger.error(f"Error extracting worksheet data: {e}")
+            raise ExtractionError(f"Failed to extract worksheet data: {str(e)}") from e
+    
+    def create_streaming_extractor(self, chunk_size: int = 1000) -> StreamingDataExtractor:
+        """
+        Create a streaming data extractor.
+        
+        This factory method creates a configured StreamingDataExtractor
+        for processing large files efficiently.
+        
+        Args:
+            chunk_size: Number of rows to process in each chunk
+            
+        Returns:
+            Configured StreamingDataExtractor instance
+        """
+        return StreamingDataExtractor(chunk_size=chunk_size)
+
     def extract_data(
         self,
         sheet: Worksheet,

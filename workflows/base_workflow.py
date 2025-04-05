@@ -1,100 +1,218 @@
 """
-Base workflow for Excel processing.
-Defines common workflow patterns and error handling.
+Base workflow module for Excel processing.
+
+This module provides the foundation for all Excel processing workflows,
+offering common functionality and configuration validation.
 """
 
-import traceback
-from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+import logging
+from pathlib import Path
+from functools import wraps
+from typing import Any, Callable, Dict, List, Optional, Type, TypeVar, Union, cast
 
-from config import ExcelProcessorConfig
-from utils.exceptions import ExcelProcessorError, WorkflowError
-from utils.logging import get_logger
-from utils.progress import ProgressReporter, create_reporter
+from pydantic import BaseModel, ValidationError
 
-logger = get_logger(__name__)
+from models.excel_data import WorkbookData
+from output.formatter import OutputFormatter
+from utils.exceptions import WorkflowConfigurationError
+from utils.validation_errors import convert_validation_error
+
+logger = logging.getLogger(__name__)
+
+# Type variable for generic type hints
+T = TypeVar('T')
 
 
-class BaseWorkflow(ABC):
+def with_error_handling(method: Callable):
     """
-    Abstract base class for processing workflows.
-    Implements common workflow patterns and error handling.
+    Decorator to provide consistent error handling for workflow methods.
+    
+    Args:
+        method: The method to wrap with error handling
+        
+    Returns:
+        Wrapped method with consistent error handling
+    """
+    @wraps(method)
+    def wrapper(self, *args, **kwargs):
+        try:
+            return method(self, *args, **kwargs)
+        except ValidationError as e:
+            # Convert Pydantic ValidationError to a workflow-specific exception
+            raise convert_validation_error(
+                e, 
+                WorkflowConfigurationError,
+                f"Configuration validation failed in {self.__class__.__name__}"
+            )
+        except Exception as e:
+            # Log and re-raise other exceptions
+            logger.error(f"Error in {self.__class__.__name__}.{method.__name__}: {str(e)}")
+            raise
+    
+    return wrapper
+
+
+class BaseWorkflow:
+    """
+    Base class for all Excel processing workflows.
+    
+    This class provides common functionality and configuration validation
+    for all Excel processing workflows.
+    
+    Attributes:
+        config: Configuration dictionary for the workflow
     """
     
-    def __init__(self, config: ExcelProcessorConfig):
+    def __init__(self, config: Dict[str, Any]):
         """
-        Initialize the workflow.
+        Initialize the workflow with configuration.
         
         Args:
-            config: Configuration for the workflow
-        """
-        self.config = config
-        self.reporter = self._create_reporter()
-    
-    def _create_reporter(self) -> ProgressReporter:
-        """
-        Create a progress reporter based on configuration.
-        
-        Returns:
-            ProgressReporter instance
-        """
-        # Default to console reporter
-        reporter_type = "console"
-        reporter_config = {}
-        
-        # TODO: Add reporter configuration to ExcelProcessorConfig
-        
-        return create_reporter(reporter_type, reporter_config)
-    
-    @abstractmethod
-    def execute(self) -> Dict[str, Any]:
-        """
-        Execute the workflow.
-        
-        Returns:
-            Dictionary with execution results
+            config: Configuration dictionary for the workflow
             
         Raises:
-            WorkflowError: If the workflow fails
+            WorkflowConfigurationError: If configuration validation fails
         """
-        pass
-    
-    def run(self) -> Dict[str, Any]:
-        """
-        Run the workflow with error handling.
+        self.config = config
         
-        Returns:
-            Dictionary with execution results
-        """
-        try:
-            logger.info(f"Starting workflow: {self.__class__.__name__}")
-            result = self.execute()
-            logger.info(f"Workflow completed: {self.__class__.__name__}")
-            return result
-        except ExcelProcessorError as e:
-            logger.error(f"Workflow error: {str(e)}")
-            return {
-                "status": "error",
-                "error": str(e),
-                "error_type": e.__class__.__name__
-            }
-        except Exception as e:
-            error_msg = f"Unexpected error in workflow: {str(e)}"
-            logger.error(error_msg)
-            logger.debug(traceback.format_exc())
-            return {
-                "status": "error",
-                "error": error_msg,
-                "error_type": "UnexpectedError"
-            }
+        # Validate configuration
+        self.validate_config()
+        
+        # Initialize formatter with configuration options
+        self.formatter = OutputFormatter(
+            include_headers=self.get_validated_value('include_headers', True),
+            include_raw_grid=self.get_validated_value('include_raw_grid', False)
+        )
     
     def validate_config(self) -> None:
         """
-        Validate workflow-specific configuration.
+        Validate the workflow configuration.
+        
+        This method should be overridden by subclasses to provide
+        workflow-specific validation beyond basic field validation.
         
         Raises:
-            WorkflowError: If the configuration is invalid
+            WorkflowConfigurationError: If validation fails
         """
-        # Base implementation does nothing
-        # Subclasses should override this method to validate their specific configuration
+        # Basic validation - check for required fields
+        required_fields = ['input_file', 'output_format']
+        for field in required_fields:
+            if field not in self.config:
+                raise WorkflowConfigurationError(f"Missing required configuration field: {field}")
+        
+        # Check for valid output format
+        valid_formats = ['json', 'csv', 'dict']
+        if self.config['output_format'] not in valid_formats:
+            raise WorkflowConfigurationError(
+                f"Invalid output format: {self.config['output_format']}. "
+                f"Valid formats are: {', '.join(valid_formats)}"
+            )
+        
+        # Legacy config validation for backward compatibility
+        self._legacy_validate_config()
+    
+    def _legacy_validate_config(self) -> None:
+        """
+        Legacy method for validating non-Pydantic configuration objects.
+        
+        This method provides backward compatibility with legacy configuration
+        objects that do not use Pydantic validation.
+        """
+        # Implement legacy validation if needed
         pass
+    
+    def get_validated_value(self, key: str, default: Any = None) -> Any:
+        """
+        Get a configuration value with validation.
+        
+        This method provides consistent access to configuration values
+        with validation handling.
+        
+        Args:
+            key: Configuration key
+            default: Default value if key is not present
+            
+        Returns:
+            Configuration value or default
+        """
+        return self.config.get(key, default)
+    
+    @with_error_handling
+    def process(self) -> Any:
+        """
+        Process the Excel file based on configuration.
+        
+        This method should be overridden by subclasses to implement
+        workflow-specific processing logic.
+        
+        Returns:
+            Processed data in the specified output format
+            
+        Raises:
+            NotImplementedError: If not overridden by subclass
+        """
+        raise NotImplementedError("Subclasses must implement process()")
+    
+    def format_output(self, workbook_data: WorkbookData) -> Any:
+        """
+        Format the workbook data for output.
+        
+        Args:
+            workbook_data: WorkbookData model to format
+            
+        Returns:
+            Formatted output in the specified format
+        """
+        output_format = self.config['output_format']
+        
+        if output_format == 'json':
+            return self.formatter.format_as_json(workbook_data)
+        elif output_format == 'dict':
+            return self.formatter.format_as_dict(workbook_data)
+        elif output_format == 'csv':
+            # For CSV, we need to pick a single sheet
+            sheet_name = self.get_validated_value('sheet_name')
+            if not sheet_name:
+                # If no sheet specified, use the first one
+                sheet_name = workbook_data.sheet_names[0]
+            
+            sheet_data = workbook_data.get_sheet(sheet_name)
+            if not sheet_data:
+                raise WorkflowConfigurationError(f"Sheet not found: {sheet_name}")
+            
+            return self.formatter.format_sheet_as_csv(sheet_data)
+        else:
+            # This should not happen as we validate in validate_config()
+            raise WorkflowConfigurationError(f"Unsupported output format: {output_format}")
+    
+    def save_output(self, output_data: Any, output_file: Path) -> None:
+        """
+        Save the output data to a file.
+        
+        Args:
+            output_data: Data to save
+            output_file: Path to save the data to
+        """
+        output_format = self.config['output_format']
+        
+        # Ensure the output directory exists
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        
+        if output_format == 'json':
+            # Output data is already a JSON string
+            with open(output_file, 'w', encoding='utf-8') as f:
+                f.write(output_data)
+        elif output_format == 'csv':
+            # Output data is a CSV string
+            with open(output_file, 'w', encoding='utf-8', newline='') as f:
+                f.write(output_data)
+        elif output_format == 'dict':
+            # Output data is a Python dictionary, serialize to JSON
+            import json
+            with open(output_file, 'w', encoding='utf-8') as f:
+                json.dump(output_data, f, indent=2)
+        else:
+            # This should not happen as we validate in validate_config()
+            raise WorkflowConfigurationError(f"Unsupported output format: {output_format}")
+        
+        logger.info(f"Output saved to {output_file}")

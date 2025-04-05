@@ -11,6 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from models.checkpoint_models import CheckpointData, ProcessingState, CheckpointMetadata
 from utils.exceptions import (
     CheckpointCreationError,
     CheckpointReadError,
@@ -28,14 +29,14 @@ class CheckpointManager:
     Used to enable resumable processing of large Excel files.
     """
     
-    DEFAULT_CHECKPOINT_DIR = "checkpoints"
+    DEFAULT_CHECKPOINT_DIR = "data/checkpoints"
     
     def __init__(self, checkpoint_dir: Optional[str] = None):
         """
         Initialize the checkpoint manager.
         
         Args:
-            checkpoint_dir: Directory to store checkpoints (default: ./checkpoints)
+            checkpoint_dir: Directory to store checkpoints (default: data/checkpoints)
         """
         self.checkpoint_dir = checkpoint_dir or self.DEFAULT_CHECKPOINT_DIR
         self._ensure_checkpoint_dir()
@@ -108,37 +109,42 @@ class CheckpointManager:
             CheckpointCreationError: If checkpoint creation fails
         """
         try:
-            checkpoint_data = {
-                "checkpoint_id": checkpoint_id,
-                "timestamp": datetime.now().isoformat(),
-                "file_path": str(file_path),
-                "workflow_type": workflow_type,
-                "state": {
-                    "current_sheet": sheet_name,
-                    "current_chunk": current_chunk,
-                    "rows_processed": rows_processed,
-                    "total_chunks_estimated": total_chunks_estimated,
-                    "output_file": str(output_file),
-                    "sheet_status": sheet_completion_status,
-                    "temp_files": temp_files,
-                    "current_sheet_index": current_sheet_index
-                }
-            }
+            # Create the processing state using Pydantic model
+            state = ProcessingState(
+                current_sheet=sheet_name,
+                current_chunk=current_chunk,
+                rows_processed=rows_processed,
+                total_chunks_estimated=total_chunks_estimated,
+                output_file=str(output_file),
+                sheet_status=sheet_completion_status,
+                temp_files=temp_files,
+                current_sheet_index=current_sheet_index,
+                processed_files=processed_files
+            )
             
-            # Add processed files for batch workflow
-            if workflow_type == "batch" and processed_files:
-                checkpoint_data["state"]["processed_files"] = processed_files
-            
-            # Add optional metadata if provided
+            # Create metadata if provided
+            checkpoint_metadata = None
             if metadata:
-                checkpoint_data["metadata"] = metadata
+                checkpoint_metadata = CheckpointMetadata(
+                    additional_info=metadata
+                )
+            
+            # Create the checkpoint data using Pydantic model
+            checkpoint_data = CheckpointData(
+                checkpoint_id=checkpoint_id,
+                timestamp=datetime.now(),
+                file_path=str(file_path),
+                workflow_type=workflow_type,
+                state=state,
+                metadata=checkpoint_metadata
+            )
             
             # Generate the checkpoint file path
             checkpoint_file = self._get_checkpoint_file_path(checkpoint_id)
             
-            # Write the checkpoint to disk
+            # Write the checkpoint to disk using Pydantic's json() method
             with open(checkpoint_file, 'w', encoding='utf-8') as f:
-                json.dump(checkpoint_data, f, indent=2)
+                f.write(checkpoint_data.model_dump_json(indent=2))
             
             logger.info(
                 f"Created checkpoint {checkpoint_id} at {checkpoint_file} "
@@ -156,7 +162,7 @@ class CheckpointManager:
                 checkpoint_file=self._get_checkpoint_file_path(checkpoint_id)
             ) from e
     
-    def get_checkpoint(self, checkpoint_id: str) -> Dict[str, Any]:
+    def get_checkpoint(self, checkpoint_id: str) -> CheckpointData:
         """
         Retrieve a checkpoint by ID.
         
@@ -164,7 +170,7 @@ class CheckpointManager:
             checkpoint_id: ID of the checkpoint to retrieve
             
         Returns:
-            Dictionary with checkpoint data
+            CheckpointData object with checkpoint data
             
         Raises:
             CheckpointReadError: If checkpoint retrieval fails
@@ -179,8 +185,10 @@ class CheckpointManager:
                     checkpoint_file=checkpoint_file
                 )
             
-            with open(checkpoint_file, 'r', encoding='utf-8') as f:
-                checkpoint_data = json.load(f)
+            # Use Pydantic's parse_file method to validate and load the checkpoint
+            checkpoint_data = CheckpointData.model_validate_json(
+                Path(checkpoint_file).read_text(encoding='utf-8')
+            )
             
             logger.info(f"Retrieved checkpoint {checkpoint_id} from {checkpoint_file}")
             

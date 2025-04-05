@@ -7,6 +7,7 @@ A comprehensive tool for processing Excel files with complex structures to JSON,
 - Detects metadata sections in Excel files
 - Handles merged cells properly, preserving hierarchical relationships
 - Smart structure analysis to identify headers and data sections
+- **Strong data validation with Pydantic models throughout the processing pipeline**
 - Processes single files, multiple sheets, or batch processing
 - Memory-efficient processing with chunking for large files
 - Streaming processing for extremely large files with minimal memory usage
@@ -264,13 +265,31 @@ result = process_single_file('input.xlsx', 'output.json', config)
 - `input_dir`: Default input directory (default: data/input)
 - `output_dir`: Default output directory (default: data/output/batch)
 - `checkpoint_dir`: Directory for checkpoint files (default: data/checkpoints)
-- `streaming_chunk_size`: Rows to process per chunk in streaming mode (default: 1000)
-- `memory_threshold_mb`: Memory threshold for optimization (default: 1024)
 
-### Data Access Options
+### Streaming Options (nested under `streaming` config)
+- `streaming.streaming_mode`: Enable streaming processing (default: False)
+- `streaming.streaming_chunk_size`: Rows to process per chunk in streaming mode (default: 1000)
+- `streaming.streaming_threshold_mb`: File size threshold to auto-enable streaming (default: 100)
+- `streaming.memory_threshold`: Memory threshold for optimization (0.0-1.0) (default: 0.8)
+- `streaming.streaming_temp_dir`: Directory for temporary streaming files (default: data/temp)
+
+### Checkpoint Options (nested under `checkpoint` config)
+- `checkpoint.use_checkpoints`: Enable checkpoint creation (default: False)
+- `checkpoint.checkpoint_dir`: Directory for checkpoint files (default: data/checkpoints)
+- `checkpoint.checkpoint_interval`: Create checkpoint after every N chunks (default: 5)
+- `checkpoint.resume_from_checkpoint`: Checkpoint ID to resume from (default: None)
+
+### Batch Processing Options (nested under `batch` config)
+- `batch.max_workers`: Maximum parallel workers for batch processing (default: 4)
+- `batch.file_pattern`: File pattern for batch processing (default: "*.xlsx")
+- `batch.prefer_multi_sheet_mode`: Use multi-sheet workflow for batch files (default: False)
+- `batch.generate_batch_summary`: Generate summary report for batch processing (default: True)
+
+### Data Access Options (nested under `data_access` config)
 - `data_access.preferred_strategy`: Preferred strategy for Excel access ("openpyxl", "pandas", "auto")
 - `data_access.enable_fallback`: Enable automatic fallback if preferred strategy fails (default: True)
 - `data_access.large_file_threshold_mb`: File size threshold for large file optimization (default: 50)
+- `data_access.complex_structure_detection`: Enable complex structure detection (default: True)
 
 ## Excel Access Strategies
 
@@ -341,3 +360,37 @@ The architecture includes adapter classes (`io/adapters/legacy_adapter.py`) that
 ## License
 
 MIT
+
+## Data Validation
+
+The Excel Processor now uses Pydantic for robust data validation throughout the processing pipeline:
+
+### Validation Features
+
+- **Strong Type Checking**: All data is strictly typed and validated using Pydantic models
+- **Nested Configuration Models**: Structured configuration with validation at every level
+- **Streaming-Optimized Validation**: Performance-optimized validation for large file processing
+- **Custom Validation Rules**: Domain-specific validation rules for Excel data
+- **Error Transformation**: Automatic conversion of validation errors to user-friendly messages
+- **Backward Compatibility**: Seamless operation with existing code via legacy adapters
+
+### Example Configuration with Validation
+
+```python
+from config import ExcelProcessorConfig
+
+# Create type-validated configuration
+config = ExcelProcessorConfig(
+    input_file="input.xlsx",
+    output_file="output.json",
+    # Nested streaming configuration
+    streaming={"streaming_mode": True, "streaming_chunk_size": 2000},
+    # Nested checkpoint configuration
+    checkpoint={"use_checkpoints": True, "checkpoint_interval": 10},
+    # Nested data access configuration
+    data_access={"preferred_strategy": "openpyxl", "large_file_threshold_mb": 75}
+)
+
+# All configuration values are validated automatically
+# Raises ValidationError if invalid values are provided
+```

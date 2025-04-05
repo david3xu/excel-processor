@@ -1,149 +1,139 @@
 """
-Models for representing extracted metadata from Excel files.
-Provides structures for metadata with validation and serialization.
+Domain models for Excel metadata.
+Provides structures for metadata extraction and organization.
 """
 
-from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from datetime import datetime
+from enum import Enum, auto
+from typing import Any, Dict, List, Optional, Tuple, Union
 
-from utils.exceptions import MetadataExtractionError
+from pydantic import BaseModel, Field
 
 
-@dataclass
-class MetadataItem:
+class MetadataValueType(Enum):
+    """Enumeration of metadata value types."""
+    
+    TEXT = auto()
+    NUMBER = auto()
+    DATE = auto()
+    BOOLEAN = auto()
+    COMPLEX = auto()
+
+
+class MetadataItem(BaseModel):
     """
-    Represents a single metadata item extracted from an Excel file.
+    Represents a single metadata item with a key-value pair.
     """
     
-    key: str
-    value: Any
-    row: int
-    column: Optional[int] = None
-    source_range: Optional[str] = None
-    data_type: Optional[str] = None
+    key: str = Field(..., description="Metadata key or field name")
+    value: Any = Field(None, description="Metadata value")
+    value_type: Optional[MetadataValueType] = Field(None, description="Type of the metadata value")
+    row: Optional[int] = Field(None, description="Row where the metadata was found")
+    column: Optional[int] = Field(None, description="Column where the metadata was found")
+    description: Optional[str] = Field(None, description="Optional description of the metadata item")
     
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary representation."""
-        result = {"key": self.key, "value": self.value}
-        
-        # Add optional fields if they are not None
-        if self.data_type is not None:
-            result["data_type"] = self.data_type
-        
-        return result
+    class Config:
+        """Pydantic configuration for MetadataItem."""
+        arbitrary_types_allowed = True
+        extra = "ignore"  # Allow extra fields for backward compatibility
 
 
-@dataclass
-class MetadataSection:
+class MetadataSection(BaseModel):
     """
-    Represents a section of metadata in an Excel file.
-    A section typically corresponds to a logical grouping of metadata.
+    Represents a section of metadata items.
     """
     
-    name: str
-    items: List[MetadataItem] = field(default_factory=list)
-    row_span: Tuple[int, int] = None
+    name: str = Field(..., description="Name of the metadata section")
+    items: Dict[str, MetadataItem] = Field(default_factory=dict, description="Dictionary of metadata items by key")
+    description: Optional[str] = Field(None, description="Optional description of the section")
     
     def add_item(self, item: MetadataItem) -> None:
         """Add a metadata item to this section."""
-        self.items.append(item)
+        self.items[item.key] = item
     
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary representation."""
-        return {
-            "name": self.name,
-            "items": [item.to_dict() for item in self.items]
-        }
+    def get_item(self, key: str) -> Optional[MetadataItem]:
+        """Get a metadata item by key."""
+        return self.items.get(key)
+    
+    def get_value(self, key: str) -> Any:
+        """Get a metadata value by key."""
+        item = self.get_item(key)
+        return item.value if item else None
+    
+    class Config:
+        """Pydantic configuration for MetadataSection."""
+        extra = "ignore"  # Allow extra fields for backward compatibility
 
 
-@dataclass
-class Metadata:
+class Metadata(BaseModel):
     """
-    Represents all metadata extracted from an Excel file.
+    Container for metadata extracted from an Excel file.
+    Organizes metadata into named sections.
     """
     
-    sections: List[MetadataSection] = field(default_factory=list)
-    row_count: int = 0
+    sections: Dict[str, MetadataSection] = Field(default_factory=dict, description="Dictionary of metadata sections by name")
+    raw_values: Dict[str, Any] = Field(default_factory=dict, description="Dictionary of raw values for quick access")
+    extracted_at: datetime = Field(default_factory=datetime.now, description="Timestamp when metadata was extracted")
     
     def add_section(self, section: MetadataSection) -> None:
         """Add a metadata section."""
-        self.sections.append(section)
+        self.sections[section.name] = section
+        # Update raw values with items from this section
+        for key, item in section.items.items():
+            self.raw_values[f"{section.name}.{key}"] = item.value
     
     def get_section(self, name: str) -> Optional[MetadataSection]:
         """Get a metadata section by name."""
-        for section in self.sections:
-            if section.name == name:
-                return section
-        return None
+        return self.sections.get(name)
     
     def add_item(self, section_name: str, item: MetadataItem) -> None:
-        """
-        Add a metadata item to the specified section.
-        Creates the section if it doesn't exist.
-        """
+        """Add a metadata item to a section, creating the section if needed."""
+        if section_name not in self.sections:
+            self.add_section(MetadataSection(name=section_name))
+        self.sections[section_name].add_item(item)
+        # Update raw values
+        self.raw_values[f"{section_name}.{item.key}"] = item.value
+    
+    def get_item(self, section_name: str, key: str) -> Optional[MetadataItem]:
+        """Get a metadata item by section name and key."""
         section = self.get_section(section_name)
-        if section is None:
-            section = MetadataSection(name=section_name)
-            self.add_section(section)
-        section.add_item(item)
+        return section.get_item(key) if section else None
+    
+    def get_value(self, section_name: str, key: str) -> Any:
+        """Get a metadata value by section name and key."""
+        item = self.get_item(section_name, key)
+        return item.value if item else None
+    
+    def get_raw_value(self, full_key: str) -> Any:
+        """Get a raw metadata value by full key (section.key)."""
+        return self.raw_values.get(full_key)
     
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary representation."""
+        """Convert metadata to a nested dictionary for serialization."""
         result = {}
-        
-        # Add each section with its items
-        for section in self.sections:
+        for section_name, section in self.sections.items():
             section_dict = {}
-            for item in section.items:
-                section_dict[item.key] = item.value
-            result[section.name] = section_dict
-        
+            for key, item in section.items.items():
+                section_dict[key] = item.value
+            result[section_name] = section_dict
         return result
     
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "Metadata":
-        """
-        Create a Metadata instance from a dictionary.
-        
-        Args:
-            data: Dictionary with metadata sections and items
-            
-        Returns:
-            New Metadata instance
-            
-        Raises:
-            MetadataExtractionError: If the data is invalid
-        """
-        try:
-            metadata = cls()
-            
-            for section_name, section_data in data.items():
-                section = MetadataSection(name=section_name)
-                
-                if not isinstance(section_data, dict):
-                    raise ValueError(f"Section data for '{section_name}' is not a dictionary")
-                
-                for key, value in section_data.items():
-                    item = MetadataItem(
-                        key=key,
-                        value=value,
-                        row=0,  # Row information not available in this context
-                    )
-                    section.add_item(item)
-                
-                metadata.add_section(section)
-            
-            return metadata
-        except Exception as e:
-            raise MetadataExtractionError(f"Error creating metadata from dictionary: {str(e)}")
+    class Config:
+        """Pydantic configuration for Metadata."""
+        arbitrary_types_allowed = True
+        extra = "ignore"  # Allow extra fields for backward compatibility
 
 
-@dataclass
-class MetadataDetectionResult:
+class MetadataDetectionResult(BaseModel):
     """
-    Result of metadata detection in an Excel file.
-    Contains the detected metadata and the row where the main data begins.
+    Results of metadata detection process.
+    Contains extracted metadata and information about header row.
     """
     
-    metadata: Metadata
-    data_start_row: int
+    metadata: Metadata = Field(..., description="Extracted metadata")
+    metadata_rows: int = Field(0, ge=0, description="Number of rows used for metadata")
+    header_row: int = Field(0, ge=0, description="Row number of the detected header")
+    
+    class Config:
+        """Pydantic configuration for MetadataDetectionResult."""
+        extra = "ignore"  # Allow extra fields for backward compatibility

@@ -1,188 +1,146 @@
 """
-Models for hierarchical data extracted from Excel files.
-Provides structures for representing parent-child relationships in data.
+Domain models for hierarchical data.
+Provides structures for representing hierarchical data extracted from Excel.
 """
 
-from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from uuid import uuid4
+
+from pydantic import BaseModel, Field, validator
 
 from models.excel_structure import CellPosition, CellRange
 
 
-@dataclass
-class MergeInfo:
-    """Information about a merged cell in the hierarchical data."""
-    
-    merge_type: str  # 'vertical', 'horizontal', or 'block'
-    span: Tuple[int, int]  # (row_span, col_span)
-    range: Optional[str] = None  # Excel range notation (e.g., 'A1:B2')
-    origin: Optional[Tuple[int, int]] = None  # Origin cell position
-    
-    @property
-    def is_vertical(self) -> bool:
-        """Check if this is a vertical merge."""
-        return self.merge_type == "vertical"
-    
-    @property
-    def is_horizontal(self) -> bool:
-        """Check if this is a horizontal merge."""
-        return self.merge_type == "horizontal"
-    
-    @property
-    def is_block(self) -> bool:
-        """Check if this is a block merge."""
-        return self.merge_type == "block"
-
-
-@dataclass
-class HierarchicalDataItem:
+class HierarchicalDataItem(BaseModel):
     """
-    Represents a single cell value in hierarchical data.
-    May contain sub-items for hierarchical relationships.
+    Represents a single data item in a hierarchical structure.
     """
     
-    key: str
-    value: Any
-    position: Optional[CellPosition] = None
-    sub_items: List["HierarchicalDataItem"] = field(default_factory=list)
-    merge_info: Optional[MergeInfo] = None
+    key: str = Field(..., description="Key or field name")
+    value: Any = Field(None, description="Value of the data item")
+    position: Optional[CellPosition] = Field(None, description="Cell position in Excel")
+    data_type: Optional[str] = Field(None, description="Data type of the value")
     
-    def add_sub_item(self, item: "HierarchicalDataItem") -> None:
-        """Add a sub-item to this item."""
-        self.sub_items.append(item)
-    
-    def to_dict(self, include_metadata: bool = False) -> Dict[str, Any]:
-        """
-        Convert to dictionary representation.
-        
-        Args:
-            include_metadata: Whether to include position and merge info
-            
-        Returns:
-            Dictionary representation of this item
-        """
-        if not self.sub_items:
-            # Simple key-value pair
-            result = self.value
-        else:
-            # Item with sub-items
-            if isinstance(self.value, dict):
-                # If value is already a dict, use it as the base
-                result = dict(self.value)
-            else:
-                # Create a new dict with 'value' as a special field
-                result = {"_value": self.value}
-            
-            # Add sub-items
-            if len(self.sub_items) == 1:
-                # Single sub-item, add directly
-                result[self.sub_items[0].key] = self.sub_items[0].to_dict(include_metadata)
-            else:
-                # Multiple sub-items, add as a list
-                sub_items_key = f"{self.key}_items"
-                result[sub_items_key] = [item.to_dict(include_metadata) for item in self.sub_items]
-        
-        # Include metadata if requested
-        if include_metadata and self.merge_info:
-            if isinstance(result, dict):
-                result["_merge_info"] = {
-                    "type": self.merge_info.merge_type,
-                    "span": self.merge_info.span,
-                }
-                if self.merge_info.range:
-                    result["_merge_info"]["range"] = self.merge_info.range
-                if self.merge_info.origin:
-                    result["_merge_info"]["origin"] = self.merge_info.origin
-            else:
-                # Convert to dict if it's not already
-                result = {
-                    "_value": result,
-                    "_merge_info": {
-                        "type": self.merge_info.merge_type,
-                        "span": self.merge_info.span,
-                    }
-                }
-                if self.merge_info.range:
-                    result["_merge_info"]["range"] = self.merge_info.range
-                if self.merge_info.origin:
-                    result["_merge_info"]["origin"] = self.merge_info.origin
-        
-        return result
+    class Config:
+        """Pydantic configuration for HierarchicalDataItem."""
+        arbitrary_types_allowed = True
+        extra = "ignore"  # Allow extra fields for backward compatibility
 
 
-@dataclass
-class HierarchicalRecord:
+class HierarchicalRecord(BaseModel):
     """
-    Represents a record in hierarchical data.
-    Contains multiple HierarchicalDataItem instances.
-    """
-    
-    items: Dict[str, HierarchicalDataItem] = field(default_factory=dict)
-    row_index: Optional[int] = None
-    
-    def add_item(self, item: HierarchicalDataItem) -> None:
-        """Add an item to this record."""
-        self.items[item.key] = item
-    
-    def get_item(self, key: str) -> Optional[HierarchicalDataItem]:
-        """Get an item by key."""
-        return self.items.get(key)
-    
-    def to_dict(self, include_metadata: bool = False) -> Dict[str, Any]:
-        """
-        Convert to dictionary representation.
-        Forces a flat dictionary {header: value} for debugging.
-        
-        Args:
-            include_metadata: (Currently ignored) Whether to include position and merge info
-            
-        Returns:
-            Dictionary representation of this record
-        """
-        flat_dict = {}
-        for key, item in self.items.items():
-            # Use the item's key (header) and its direct value
-            flat_dict[key] = item.value 
-        return flat_dict
-
-
-@dataclass
-class HierarchicalData:
-    """
-    Represents hierarchical data extracted from an Excel file.
-    Contains multiple records with hierarchical relationships.
+    Represents a record in a hierarchical structure.
+    Each record can have multiple data items.
     """
     
-    records: List[HierarchicalRecord] = field(default_factory=list)
-    columns: List[str] = field(default_factory=list)
+    id: str = Field(default_factory=lambda: str(uuid4()), description="Unique identifier for the record")
+    level: int = Field(0, ge=0, description="Level in the hierarchy (0 = root)")
+    parent_id: Optional[str] = Field(None, description="ID of parent record")
+    source_row: Optional[int] = Field(None, description="Row number in Excel")
+    items: Dict[str, HierarchicalDataItem] = Field(default_factory=dict, description="Dictionary of data items by key")
+    children: List["HierarchicalRecord"] = Field(default_factory=list, description="List of child records")
     
-    def add_record(self, record: HierarchicalRecord) -> None:
-        """Add a record to the data."""
-        self.records.append(record)
+    def add_item(self, key: str, value: Any, position: Optional[CellPosition] = None) -> None:
+        """Add a data item to this record."""
+        item = HierarchicalDataItem(
+            key=key,
+            value=value,
+            position=position
+        )
+        self.items[key] = item
     
-    def to_list(self, include_metadata: bool = False) -> List[Dict[str, Any]]:
-        """
-        Convert to list of dictionaries.
-        
-        Args:
-            include_metadata: Whether to include position and merge info
-            
-        Returns:
-            List of dictionaries representing the records
-        """
-        return [record.to_dict(include_metadata) for record in self.records]
+    def get_item_value(self, key: str) -> Any:
+        """Get the value of a data item by key."""
+        item = self.items.get(key)
+        return item.value if item else None
     
-    def to_dict(self, include_metadata: bool = False) -> Dict[str, Any]:
-        """
-        Convert to dictionary representation.
-        
-        Args:
-            include_metadata: Whether to include position and merge info
-            
-        Returns:
-            Dictionary representation with records and columns
-        """
-        return {
-            "data": self.to_list(include_metadata),
-            "columns": self.columns,
+    def has_item(self, key: str) -> bool:
+        """Check if this record has an item with the given key."""
+        return key in self.items
+    
+    def add_child(self, child: "HierarchicalRecord") -> None:
+        """Add a child record to this record."""
+        child.parent_id = self.id
+        self.children.append(child)
+    
+    def find_child_by_id(self, child_id: str) -> Optional["HierarchicalRecord"]:
+        """Find a direct child by its ID."""
+        for child in self.children:
+            if child.id == child_id:
+                return child
+        return None
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary representation."""
+        result = {
+            "id": self.id,
+            "level": self.level,
+            "parent_id": self.parent_id,
+            "data": {k: v.value for k, v in self.items.items()},
+            "children": [child.to_dict() for child in self.children]
         }
+        if self.source_row is not None:
+            result["source_row"] = self.source_row
+        return result
+    
+    class Config:
+        """Pydantic configuration for HierarchicalRecord."""
+        arbitrary_types_allowed = True
+        extra = "ignore"  # Allow extra fields for backward compatibility
+
+
+class HierarchicalData(BaseModel):
+    """
+    Container for hierarchical data extracted from an Excel file.
+    """
+    
+    records: List[HierarchicalRecord] = Field(default_factory=list, description="List of root records")
+    record_map: Dict[str, HierarchicalRecord] = Field(default_factory=dict, description="Dictionary mapping record IDs to records")
+    max_depth: int = Field(0, ge=0, description="Maximum depth of the hierarchy")
+    
+    def add_record(self, record: HierarchicalRecord, parent_id: Optional[str] = None) -> None:
+        """Add a record to the hierarchy."""
+        self.record_map[record.id] = record
+        
+        if parent_id:
+            # Add as child of another record
+            parent = self.get_record_by_id(parent_id)
+            if parent:
+                parent.add_child(record)
+                record.level = parent.level + 1
+                # Update max depth if needed
+                self.max_depth = max(self.max_depth, record.level)
+        else:
+            # Add as root record
+            self.records.append(record)
+    
+    def get_record_by_id(self, record_id: str) -> Optional[HierarchicalRecord]:
+        """Get a record by its ID."""
+        return self.record_map.get(record_id)
+    
+    def to_dict(self) -> List[Dict[str, Any]]:
+        """Convert to a list of dictionaries."""
+        return [record.to_dict() for record in self.records]
+    
+    class Config:
+        """Pydantic configuration for HierarchicalData."""
+        arbitrary_types_allowed = True
+        extra = "ignore"  # Allow extra fields for backward compatibility
+
+
+class HierarchicalDataExtractionOptions(BaseModel):
+    """
+    Options for hierarchical data extraction.
+    """
+    
+    hierarchy_column: Optional[str] = Field(None, description="Column to use for determining hierarchy")
+    id_column: Optional[str] = Field(None, description="Column to use for record IDs")
+    parent_id_column: Optional[str] = Field(None, description="Column to use for parent record IDs")
+    level_column: Optional[str] = Field(None, description="Column to use for hierarchy level")
+    include_columns: Optional[List[str]] = Field(None, description="List of columns to include (None = all)")
+    exclude_columns: List[str] = Field(default_factory=list, description="List of columns to exclude")
+    detect_hierarchy: bool = Field(True, description="Whether to detect hierarchy automatically")
+    
+    class Config:
+        """Pydantic configuration for HierarchicalDataExtractionOptions."""
+        extra = "ignore"  # Allow extra fields for backward compatibility

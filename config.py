@@ -5,204 +5,214 @@ Defines configuration structures, validation, and loading mechanisms.
 
 import json
 import os
-from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Union
+
+from pydantic import BaseModel, Field, validator, model_validator
 
 from utils.exceptions import ConfigurationError
 
 
-@dataclass
-class ExcelProcessorConfig:
+# Nested configuration models for better organization
+class StreamingConfig(BaseModel):
+    """Configuration for streaming mode with validation."""
+    streaming_mode: bool = Field(False, description="Whether to use streaming mode for large files")
+    streaming_threshold_mb: int = Field(100, ge=10, description="File size threshold to auto-enable streaming")
+    streaming_chunk_size: int = Field(1000, ge=100, description="Chunk size for streaming mode")
+    streaming_temp_dir: str = Field("data/temp", description="Directory for temporary streaming files")
+    memory_threshold: float = Field(0.8, ge=0.1, le=0.95, description="Memory usage threshold for chunk adjustment")
+    
+    class Config:
+        """Pydantic configuration for StreamingConfig."""
+        validate_assignment = True
+        extra = "forbid"
+
+
+class CheckpointConfig(BaseModel):
+    """Configuration for checkpointing with validation."""
+    use_checkpoints: bool = Field(False, description="Whether to use checkpoints")
+    checkpoint_dir: str = Field("data/checkpoints", description="Directory for checkpoint files")
+    checkpoint_interval: int = Field(5, ge=1, description="Create checkpoint after N chunks")
+    resume_from_checkpoint: Optional[str] = Field(None, description="Checkpoint ID to resume from")
+    
+    class Config:
+        """Pydantic configuration for CheckpointConfig."""
+        validate_assignment = True
+        extra = "forbid"
+
+
+class BatchConfig(BaseModel):
+    """Configuration for batch processing with validation."""
+    use_cache: bool = Field(True, description="Whether to use caching for batch processing")
+    cache_dir: str = Field("data/cache", description="Directory for cache files")
+    parallel_processing: bool = Field(True, description="Whether to use parallel processing")
+    max_workers: int = Field(4, ge=1, description="Maximum number of worker threads")
+    
+    class Config:
+        """Pydantic configuration for BatchConfig."""
+        validate_assignment = True
+        extra = "forbid"
+
+
+class DataAccessConfig(BaseModel):
+    """Configuration for data access strategies."""
+    preferred_strategy: str = Field("auto", description="Data access strategy (auto, openpyxl, pandas, fallback)")
+    enable_fallback: bool = Field(True, description="Whether to fall back to alternative strategy if primary fails")
+    large_file_threshold_mb: int = Field(50, ge=1, description="Threshold for large file handling in MB")
+    complex_structure_detection: bool = Field(True, description="Whether to detect complex structures in Excel")
+    
+    @validator("preferred_strategy")
+    def validate_strategy(cls, v):
+        """Validate the preferred strategy."""
+        valid_strategies = {"auto", "openpyxl", "pandas", "fallback"}
+        if v.lower() not in valid_strategies:
+            raise ValueError(f"preferred_strategy must be one of {valid_strategies}")
+        return v.lower()
+    
+    class Config:
+        """Pydantic configuration for DataAccessConfig."""
+        validate_assignment = True
+        extra = "forbid"
+
+
+class ExcelProcessorConfig(BaseModel):
     """
     Configuration for the Excel processor.
     Contains all settings that control the behavior of the processor.
     """
 
     # Input/Output settings
-    input_file: Optional[str] = None
-    output_file: Optional[str] = None
-    input_dir: Optional[str] = "data/input"  # Default input directory
-    output_dir: Optional[str] = "data/output"  # Default output directory for batch
+    input_file: Optional[str] = Field(None, description="Path to input Excel file")
+    output_file: Optional[str] = Field(None, description="Path to output file")
+    input_dir: Optional[str] = Field(None, description="Default input directory")
+    output_dir: Optional[str] = Field(None, description="Default output directory for batch")
     
     # Sheet settings
-    sheet_name: Optional[str] = None
-    sheet_names: List[str] = field(default_factory=list)
+    sheet_name: Optional[str] = Field(None, description="Name of sheet to process")
+    sheet_names: List[str] = Field(default_factory=list, description="List of sheet names to process")
     
     # Processing settings
-    metadata_max_rows: int = 6
-    header_detection_threshold: int = 3
-    include_empty_cells: bool = False
-    chunk_size: int = 1000
+    metadata_max_rows: int = Field(6, ge=0, description="Maximum rows to scan for metadata")
+    header_detection_threshold: int = Field(3, ge=1, description="Minimum cells in a row to consider it a header")
+    include_empty_cells: bool = Field(False, description="Whether to include empty cells in output")
+    chunk_size: int = Field(1000, ge=100, description="Number of rows to process in a chunk")
     
-    # Data access strategy settings
-    preferred_strategy: str = "auto"  # auto, openpyxl, pandas, fallback
-    enable_fallback: bool = True
-    large_file_threshold_mb: int = 50
-    complex_structure_detection: bool = True
-    
-    # Batch processing settings
-    use_cache: bool = True
-    cache_dir: str = "data/cache"  # Updated cache directory
-    parallel_processing: bool = True
-    max_workers: int = 4
-    
-    # Streaming processing settings
-    streaming_mode: bool = False  # Whether to use streaming mode for large files
-    streaming_threshold_mb: int = 100  # File size threshold to auto-enable streaming
-    streaming_chunk_size: int = 1000  # Chunk size for streaming mode
-    streaming_temp_dir: str = "data/temp"  # Directory for temporary streaming files
-    memory_threshold: float = 0.8  # Memory usage threshold (0.0-1.0) for dynamic chunk adjustment
-    
-    # Checkpointing settings
-    use_checkpoints: bool = False  # Whether to use checkpoints
-    checkpoint_dir: str = "data/checkpoints"  # Directory for checkpoint files
-    checkpoint_interval: int = 5  # Create a checkpoint after processing every N chunks
-    resume_from_checkpoint: Optional[str] = None  # Checkpoint ID to resume from
+    # Nested configuration sections
+    streaming: StreamingConfig = Field(default_factory=StreamingConfig)
+    checkpointing: CheckpointConfig = Field(default_factory=CheckpointConfig)
+    data_access: DataAccessConfig = Field(default_factory=DataAccessConfig)
+    batch: BatchConfig = Field(default_factory=BatchConfig)
     
     # Logging settings
-    log_level: str = "info"
-    log_file: str = "data/logs/excel_processing.log"
-    log_to_console: bool = True
+    log_level: str = Field("info", description="Logging level")
+    log_file: str = Field("data/logs/excel_processing.log", description="Log file path")
+    log_to_console: bool = Field(True, description="Whether to log to console")
     
-    def validate(self) -> None:
-        """
-        Validate the configuration settings.
-        Raises ConfigurationError if any settings are invalid.
-        """
-        # Validate input/output configuration
+    class Config:
+        """Pydantic configuration for ExcelProcessorConfig."""
+        validate_assignment = True
+        extra = "forbid"
+    
+    @validator("log_level")
+    def validate_log_level(cls, v):
+        """Validate the log level."""
+        valid_log_levels = {"debug", "info", "warning", "error", "critical"}
+        if v.lower() not in valid_log_levels:
+            raise ValueError(f"log_level must be one of {valid_log_levels}")
+        return v.lower()
+    
+    @model_validator(mode='after')
+    def validate_input_output_config(self):
+        """Validate input/output configuration."""
+        # Cannot specify both input_file and input_dir
         if self.input_file and self.input_dir:
-            raise ConfigurationError(
-                "Cannot specify both input_file and input_dir",
-                param_name="input_file, input_dir",
-            )
-        
+            raise ValueError("Cannot specify both input_file and input_dir")
+            
+        # Cannot specify both output_file and output_dir
         if self.output_file and self.output_dir:
-            raise ConfigurationError(
-                "Cannot specify both output_file and output_dir",
-                param_name="output_file, output_dir",
-            )
-        
+            raise ValueError("Cannot specify both output_file and output_dir")
+            
+        # Must specify either input_file or input_dir
         if not (self.input_file or self.input_dir):
-            raise ConfigurationError(
-                "Must specify either input_file or input_dir",
-                param_name="input_file, input_dir",
-            )
+            raise ValueError("Must specify either input_file or input_dir")
             
         # If input_dir is set, output_dir must also be set
         if self.input_dir and not self.output_dir:
-            raise ConfigurationError(
-                "Must specify output_dir when input_dir is specified",
-                param_name="output_dir",
-            )
+            raise ValueError("Must specify output_dir when input_dir is specified")
             
         # If input_file is set, output_file should also be set
         if self.input_file and not self.output_file:
-            raise ConfigurationError(
-                "Must specify output_file when input_file is specified",
-                param_name="output_file",
-            )
+            raise ValueError("Must specify output_file when input_file is specified")
+            
+        return self
+    
+    @model_validator(mode='after')
+    def validate_checkpoints_and_streaming(self):
+        """Validate checkpoint and streaming settings."""
+        # Ensure streaming mode is enabled when using checkpoints
+        if self.checkpointing.use_checkpoints and not self.streaming.streaming_mode:
+            self.streaming.streaming_mode = True
+            
+        return self
+    
+    def __getattr__(self, name):
+        """
+        Handle legacy attribute access for backward compatibility.
+        Allows accessing nested attributes with the original flat structure.
+        """
+        # Map of legacy attribute names to their new locations
+        nested_mappings = {
+            # Streaming settings
+            "streaming_mode": ("streaming", "streaming_mode"),
+            "streaming_threshold_mb": ("streaming", "streaming_threshold_mb"),
+            "streaming_chunk_size": ("streaming", "streaming_chunk_size"),
+            "streaming_temp_dir": ("streaming", "streaming_temp_dir"),
+            "memory_threshold": ("streaming", "memory_threshold"),
+            
+            # Checkpoint settings
+            "use_checkpoints": ("checkpointing", "use_checkpoints"),
+            "checkpoint_dir": ("checkpointing", "checkpoint_dir"),
+            "checkpoint_interval": ("checkpointing", "checkpoint_interval"),
+            "resume_from_checkpoint": ("checkpointing", "resume_from_checkpoint"),
+            
+            # Data access settings
+            "preferred_strategy": ("data_access", "preferred_strategy"),
+            "enable_fallback": ("data_access", "enable_fallback"),
+            "large_file_threshold_mb": ("data_access", "large_file_threshold_mb"),
+            "complex_structure_detection": ("data_access", "complex_structure_detection"),
+            
+            # Batch settings
+            "use_cache": ("batch", "use_cache"),
+            "cache_dir": ("batch", "cache_dir"),
+            "parallel_processing": ("batch", "parallel_processing"),
+            "max_workers": ("batch", "max_workers"),
+        }
         
-        # Validate numeric parameters
-        if self.metadata_max_rows < 0:
-            raise ConfigurationError(
-                "metadata_max_rows must be non-negative",
-                param_name="metadata_max_rows",
-                param_value=self.metadata_max_rows,
-            )
+        if name in nested_mappings:
+            section, attribute = nested_mappings[name]
+            return getattr(getattr(self, section), attribute)
             
-        if self.header_detection_threshold < 1:
-            raise ConfigurationError(
-                "header_detection_threshold must be at least 1",
-                param_name="header_detection_threshold",
-                param_value=self.header_detection_threshold,
-            )
-            
-        if self.chunk_size < 100:
-            raise ConfigurationError(
-                "chunk_size must be at least 100",
-                param_name="chunk_size",
-                param_value=self.chunk_size,
-            )
-            
-        if self.max_workers < 1:
-            raise ConfigurationError(
-                "max_workers must be at least 1",
-                param_name="max_workers",
-                param_value=self.max_workers,
-            )
-            
-        # Validate large_file_threshold_mb
-        if self.large_file_threshold_mb < 1:
-            raise ConfigurationError(
-                "large_file_threshold_mb must be at least 1",
-                param_name="large_file_threshold_mb",
-                param_value=self.large_file_threshold_mb,
-            )
-            
-        # Validate preferred_strategy
-        valid_strategies = {"auto", "openpyxl", "pandas", "fallback"}
-        if self.preferred_strategy.lower() not in valid_strategies:
-            raise ConfigurationError(
-                f"preferred_strategy must be one of {valid_strategies}",
-                param_name="preferred_strategy",
-                param_value=self.preferred_strategy,
-            )
-            
-        # Validate log level
-        valid_log_levels = {"debug", "info", "warning", "error", "critical"}
-        if self.log_level.lower() not in valid_log_levels:
-            raise ConfigurationError(
-                f"log_level must be one of {valid_log_levels}",
-                param_name="log_level",
-                param_value=self.log_level,
-            )
-        
-        # Validate streaming settings
-        if self.streaming_mode:
-            if self.streaming_chunk_size < 100:
-                raise ConfigurationError(
-                    "streaming_chunk_size must be at least 100",
-                    param_name="streaming_chunk_size",
-                    param_value=self.streaming_chunk_size,
-                )
-                
-            if self.streaming_threshold_mb < 10:
-                raise ConfigurationError(
-                    "streaming_threshold_mb must be at least 10",
-                    param_name="streaming_threshold_mb",
-                    param_value=self.streaming_threshold_mb,
-                )
-                
-            if not (0.1 <= self.memory_threshold <= 0.95):
-                raise ConfigurationError(
-                    "memory_threshold must be between 0.1 and 0.95",
-                    param_name="memory_threshold",
-                    param_value=self.memory_threshold,
-                )
-            
-        # Validate checkpointing settings
-        if self.use_checkpoints:
-            if self.checkpoint_interval < 1:
-                raise ConfigurationError(
-                    "checkpoint_interval must be at least 1",
-                    param_name="checkpoint_interval",
-                    param_value=self.checkpoint_interval,
-                )
-            
-            # Ensure streaming mode is enabled when using checkpoints
-            if not self.streaming_mode:
-                self.streaming_mode = True
-            
+        # For attributes not in the mapping, raise AttributeError
+        raise AttributeError(f"'{self.__class__.__name__}' has no attribute '{name}'")
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert configuration to dictionary."""
-        return asdict(self)
+        # Using model_dump with flatten=True would be ideal, but let's manually flatten
+        # to ensure backward compatibility
+        result = self.model_dump()
+        
+        # Flatten nested configs for backward compatibility
+        for section in ["streaming", "checkpointing", "data_access", "batch"]:
+            if section in result:
+                section_data = result.pop(section)
+                result.update(section_data)
+                
+        return result
     
     @classmethod
     def from_dict(cls, config_dict: Dict[str, Any]) -> "ExcelProcessorConfig":
         """
         Create configuration from dictionary.
-        Only includes keys that are valid fields in the configuration.
         
         Args:
             config_dict: Dictionary containing configuration values
@@ -210,13 +220,69 @@ class ExcelProcessorConfig:
         Returns:
             New configuration instance with values from dictionary
         """
-        # Get the field names defined in the dataclass
-        field_names = {field.name for field in cls.__dataclass_fields__.values()}
-        
-        # Filter the input dictionary to only include valid fields
-        filtered_dict = {k: v for k, v in config_dict.items() if k in field_names}
-        
-        return cls(**filtered_dict)
+        try:
+            # Organize nested configuration parameters
+            streaming_params = {}
+            checkpoint_params = {}
+            data_access_params = {}
+            batch_params = {}
+            
+            # Mapping for nested attributes
+            nested_mappings = {
+                # Streaming settings
+                "streaming_mode": ("streaming_params", "streaming_mode"),
+                "streaming_threshold_mb": ("streaming_params", "streaming_threshold_mb"),
+                "streaming_chunk_size": ("streaming_params", "streaming_chunk_size"),
+                "streaming_temp_dir": ("streaming_params", "streaming_temp_dir"),
+                "memory_threshold": ("streaming_params", "memory_threshold"),
+                
+                # Checkpoint settings
+                "use_checkpoints": ("checkpoint_params", "use_checkpoints"),
+                "checkpoint_dir": ("checkpoint_params", "checkpoint_dir"),
+                "checkpoint_interval": ("checkpoint_params", "checkpoint_interval"),
+                "resume_from_checkpoint": ("checkpoint_params", "resume_from_checkpoint"),
+                
+                # Data access settings
+                "preferred_strategy": ("data_access_params", "preferred_strategy"),
+                "enable_fallback": ("data_access_params", "enable_fallback"),
+                "large_file_threshold_mb": ("data_access_params", "large_file_threshold_mb"),
+                "complex_structure_detection": ("data_access_params", "complex_structure_detection"),
+                
+                # Batch settings
+                "use_cache": ("batch_params", "use_cache"),
+                "cache_dir": ("batch_params", "cache_dir"),
+                "parallel_processing": ("batch_params", "parallel_processing"),
+                "max_workers": ("batch_params", "max_workers"),
+            }
+            
+            # Extract direct and nested parameters
+            direct_params = {}
+            for key, value in config_dict.items():
+                if key in nested_mappings:
+                    param_dict, new_key = nested_mappings[key]
+                    locals()[param_dict][new_key] = value
+                else:
+                    direct_params[key] = value
+            
+            # Create properly structured configuration
+            nested_config = {
+                **direct_params,
+                "streaming": StreamingConfig(**streaming_params) if streaming_params else None,
+                "checkpointing": CheckpointConfig(**checkpoint_params) if checkpoint_params else None,
+                "data_access": DataAccessConfig(**data_access_params) if data_access_params else None,
+                "batch": BatchConfig(**batch_params) if batch_params else None,
+            }
+            
+            # Remove None values
+            nested_config = {k: v for k, v in nested_config.items() if v is not None}
+            
+            return cls(**nested_config)
+        except Exception as e:
+            raise ConfigurationError(
+                f"Invalid configuration: {str(e)}",
+                param_name=getattr(e, "loc", ["unknown"])[0] if hasattr(e, "loc") else "unknown",
+                param_value=None
+            )
     
     @classmethod
     def from_json(cls, json_file: str) -> "ExcelProcessorConfig":
@@ -265,44 +331,16 @@ class ExcelProcessorConfig:
             if k.startswith(prefix)
         }
         
-        # Convert types based on default values in the dataclass
-        config_dict = {}
-        for field_name, field_value in env_vars.items():
-            # Skip unknown fields
-            if field_name not in cls.__dataclass_fields__:
-                continue
-                
-            # Get the field type from the dataclass
-            field_type = cls.__dataclass_fields__[field_name].type
-            
-            # Convert value based on field type
-            if field_type in (int, Optional[int]):
-                try:
-                    config_dict[field_name] = int(field_value)
-                except ValueError:
-                    raise ConfigurationError(
-                        f"Invalid integer value for {field_name}: {field_value}",
-                        param_name=field_name,
-                        param_value=field_value,
-                    )
-            elif field_type in (bool, Optional[bool]):
-                config_dict[field_name] = field_value.lower() in ("true", "yes", "1", "on")
-            elif field_type in (List[str], list):
-                config_dict[field_name] = field_value.split(",")
-            elif field_type in (float, Optional[float]):
-                try:
-                    config_dict[field_name] = float(field_value)
-                except ValueError:
-                    raise ConfigurationError(
-                        f"Invalid float value for {field_name}: {field_value}",
-                        param_name=field_name,
-                        param_value=field_value,
-                    )
-            else:
-                # Default to string
-                config_dict[field_name] = field_value
-                
-        return cls.from_dict(config_dict)
+        # Convert boolean and list types
+        for key, value in list(env_vars.items()):
+            if key in cls.__annotations__:
+                field_type = cls.__annotations__[key]
+                if field_type == bool or getattr(field_type, "__origin__", None) is Union and bool in getattr(field_type, "__args__", []):
+                    env_vars[key] = value.lower() in ("true", "yes", "1", "on")
+                elif field_type == List[str] or field_type == list:
+                    env_vars[key] = value.split(",")
+                    
+        return cls.from_dict(env_vars)
 
 
 def get_config(

@@ -6,6 +6,7 @@ Processes multiple sheets in an Excel file and produces combined JSON output.
 from typing import Any, Dict, List, Optional
 import os
 import json
+from pydantic import ValidationError
 
 from config import ExcelProcessorConfig, get_data_access_config
 from core.extractor import DataExtractor
@@ -17,14 +18,15 @@ from utils.exceptions import WorkflowConfigurationError, WorkflowError, Checkpoi
 from utils.logging import get_logger
 from utils.checkpointing import CheckpointManager
 from workflows.base_workflow import BaseWorkflow
+from utils.validation_errors import convert_validation_error
 
 logger = get_logger(__name__)
 
 
 class MultiSheetWorkflow(BaseWorkflow):
     """
-    Workflow for processing multiple sheets in an Excel file.
-    Processes each sheet and combines results into a single output.
+    Enhanced workflow for processing multiple sheets in an Excel file.
+    Processes each sheet and combines results into a single output with validation.
     """
     
     def __init__(self, config: ExcelProcessorConfig):
@@ -42,8 +44,9 @@ class MultiSheetWorkflow(BaseWorkflow):
         
         # Initialize checkpointing if enabled
         self.checkpoint_manager = None
-        if self.config.use_checkpoints:
-            self.checkpoint_manager = CheckpointManager(self.config.checkpoint_dir)
+        if self.get_validated_value("use_checkpoints", False):
+            checkpoint_dir = self.get_validated_value("checkpoint_dir", "data/checkpoints")
+            self.checkpoint_manager = CheckpointManager(checkpoint_dir)
     
     def validate_config(self) -> None:
         """
@@ -52,24 +55,54 @@ class MultiSheetWorkflow(BaseWorkflow):
         Raises:
             WorkflowConfigurationError: If the configuration is invalid
         """
-        if not self.config.input_file:
-            raise WorkflowConfigurationError(
-                "Input file must be specified for multi-sheet workflow",
-                workflow_name="MultiSheetWorkflow",
-                param_name="input_file"
+        try:
+            # Check if using Pydantic config
+            if isinstance(self.config, ExcelProcessorConfig):
+                # Validated by Pydantic already, but check workflow-specific requirements
+                if not self.config.input_file:
+                    raise WorkflowConfigurationError(
+                        "Input file must be specified for multi-sheet workflow",
+                        workflow_name="MultiSheetWorkflow",
+                        param_name="input_file"
+                    )
+            else:
+                # Legacy validation
+                if not getattr(self.config, "input_file", None):
+                    raise WorkflowConfigurationError(
+                        "Input file must be specified for multi-sheet workflow",
+                        workflow_name="MultiSheetWorkflow",
+                        param_name="input_file"
+                    )
+        except ValidationError as e:
+            # Convert Pydantic validation error to workflow error
+            raise convert_validation_error(
+                e, 
+                WorkflowConfigurationError,
+                "Invalid configuration for multi-sheet workflow",
+                {"workflow_name": "MultiSheetWorkflow"}
             )
     
     def _create_strategy_factory(self) -> StrategyFactory:
         """
-        Create and configure the strategy factory.
+        Create and configure the strategy factory with validated parameters.
         
         Returns:
             Configured StrategyFactory instance
         """
-        # Get data access configuration
-        data_access_config = get_data_access_config(self.config)
+        # Get data access configuration with validation
+        if isinstance(self.config, ExcelProcessorConfig):
+            # Extract from Pydantic config
+            data_access_config = {
+                "preferred_strategy": self.config.data_access.preferred_strategy,
+                "enable_fallback": self.config.data_access.enable_fallback,
+                "large_file_threshold_mb": self.config.data_access.large_file_threshold_mb,
+                "complex_structure_detection": self.config.data_access.complex_structure_detection
+            }
+        else:
+            # Use legacy helper or direct access
+            data_access_config = get_data_access_config(self.config)
         
-        # Create factory
+        # Create factory with validated configuration
         factory = StrategyFactory(data_access_config)
         
         # Register strategies in priority order
@@ -81,7 +114,7 @@ class MultiSheetWorkflow(BaseWorkflow):
         
     def _should_use_streaming(self, input_file: str) -> bool:
         """
-        Determine if streaming mode should be used based on file size.
+        Determine if streaming mode should be used with enhanced validation.
         
         Args:
             input_file: Path to the input file
@@ -89,17 +122,27 @@ class MultiSheetWorkflow(BaseWorkflow):
         Returns:
             True if streaming should be used, False otherwise
         """
-        # If streaming mode is explicitly enabled, use it
-        if self.config.streaming_mode:
-            return True
+        # Access streaming configuration with validation
+        if isinstance(self.config, ExcelProcessorConfig):
+            # Pydantic validated configuration
+            if self.config.streaming.streaming_mode:
+                return True
+            
+            streaming_threshold = self.config.streaming.streaming_threshold_mb
+        else:
+            # Legacy configuration
+            if getattr(self.config, "streaming_mode", False):
+                return True
+                
+            streaming_threshold = getattr(self.config, "streaming_threshold_mb", 100)
         
-        # If file size is above threshold, use streaming
+        # Auto-detect based on file size with validated threshold
         try:
             file_size_mb = os.path.getsize(input_file) / (1024 * 1024)
-            if file_size_mb > self.config.streaming_threshold_mb:
+            if file_size_mb > streaming_threshold:
                 logger.info(
                     f"File size ({file_size_mb:.2f} MB) exceeds threshold "
-                    f"({self.config.streaming_threshold_mb} MB), enabling streaming mode"
+                    f"({streaming_threshold} MB), enabling streaming mode"
                 )
                 return True
         except OSError as e:
@@ -107,9 +150,10 @@ class MultiSheetWorkflow(BaseWorkflow):
         
         return False
     
+    @BaseWorkflow.with_error_handling("execute")
     def execute(self) -> Dict[str, Any]:
         """
-        Execute the multi-sheet workflow.
+        Execute the multi-sheet workflow with validation at transformation boundaries.
         
         Returns:
             Dictionary with execution results
@@ -117,30 +161,24 @@ class MultiSheetWorkflow(BaseWorkflow):
         Raises:
             WorkflowError: If the workflow fails
         """
-        try:
-            logger.info(f"Processing multiple sheets in file: {self.config.input_file}")
-            
-            # Determine if streaming should be used
-            use_streaming = self._should_use_streaming(self.config.input_file)
-            
-            if use_streaming:
-                logger.info("Using streaming mode for processing")
-                return self._execute_streaming()
-            else:
-                logger.info("Using standard mode for processing")
-                return self._execute_standard()
-                
-        except Exception as e:
-            self.reporter.error(f"Failed to process file: {str(e)}")
-            raise WorkflowError(
-                f"Failed to process multi-sheet file: {str(e)}",
-                workflow_name="MultiSheetWorkflow",
-                step="execute"
-            ) from e
-            
+        # Get validated input file
+        input_file = self.get_validated_value("input_file")
+        
+        logger.info(f"Processing multiple sheets in file: {input_file}")
+        
+        # Determine if streaming should be used
+        use_streaming = self._should_use_streaming(input_file)
+        
+        if use_streaming:
+            logger.info("Using streaming mode for processing")
+            return self._execute_streaming()
+        else:
+            logger.info("Using standard mode for processing")
+            return self._execute_standard()
+    
     def _execute_standard(self) -> Dict[str, Any]:
         """
-        Execute the standard (non-streaming) workflow.
+        Execute the standard (non-streaming) workflow with validation.
         
         Returns:
             Dictionary with execution results
@@ -151,17 +189,20 @@ class MultiSheetWorkflow(BaseWorkflow):
         # Create components
         structure_analyzer = StructureAnalyzer()
         data_extractor = DataExtractor()
-        formatter = OutputFormatter(include_structure_metadata=False)
+        formatter = OutputFormatter(include_structure_metadata=self.get_validated_value("include_structure_metadata", False))
         writer = OutputWriter()
         
+        # Get validated input file
+        input_file = self.get_validated_value("input_file")
+        
         # Open workbook
-        reader = self.strategy_factory.create_reader(self.config.input_file)
+        reader = self.strategy_factory.create_reader(input_file)
         
         reader.open_workbook()
         
         try:
-            # Determine which sheets to process
-            sheet_names = self.config.sheet_names
+            # Determine which sheets to process with validation
+            sheet_names = self.get_validated_value("sheet_names", [])
             if not sheet_names:
                 # Process all sheets if none specified
                 sheet_names = reader.get_sheet_names()
@@ -172,7 +213,7 @@ class MultiSheetWorkflow(BaseWorkflow):
             total_steps = len(sheet_names) + 1  # +1 for writing output
             self.reporter.start(total_steps, f"Processing {len(sheet_names)} sheets")
             
-            # Process each sheet
+            # Process each sheet with validation
             sheets_data = {}
             for i, sheet_name in enumerate(sheet_names):
                 try:
@@ -188,21 +229,27 @@ class MultiSheetWorkflow(BaseWorkflow):
                         sheet_name
                     )
                     
-                    # Detect metadata and header
+                    # Detect metadata and header with validated parameters
+                    metadata_max_rows = self.get_validated_value("metadata_max_rows", 6)
+                    header_threshold = self.get_validated_value("header_detection_threshold", 3)
+                    
                     detection_result = structure_analyzer.detect_metadata_and_header(
                         sheet_accessor,
                         sheet_name=sheet_name,
-                        max_metadata_rows=self.config.metadata_max_rows,
-                        header_threshold=self.config.header_detection_threshold
+                        max_metadata_rows=metadata_max_rows,
+                        header_threshold=header_threshold
                     )
                     
-                    # Extract hierarchical data
+                    # Extract hierarchical data with validated parameters
+                    chunk_size = self.get_validated_value("chunk_size", 1000)
+                    include_empty = self.get_validated_value("include_empty_cells", False)
+                    
                     hierarchical_data = data_extractor.extract_data(
                         sheet_accessor,
                         sheet_structure.merge_map,
                         detection_result.data_start_row,
-                        chunk_size=self.config.chunk_size,
-                        include_empty=self.config.include_empty_cells
+                        chunk_size=chunk_size,
+                        include_empty=include_empty
                     )
                     
                     # Format output for this sheet
@@ -219,6 +266,14 @@ class MultiSheetWorkflow(BaseWorkflow):
                         f"Processed sheet '{sheet_name}' with "
                         f"{len(hierarchical_data.records)} records"
                     )
+                except ValidationError as e:
+                    # Handle Pydantic validation errors
+                    logger.error(f"Validation error in sheet '{sheet_name}': {str(e)}")
+                    sheets_data[sheet_name] = {
+                        "status": "error",
+                        "error": str(e),
+                        "error_type": "ValidationError"
+                    }
                 except Exception as e:
                     logger.error(f"Failed to process sheet '{sheet_name}': {str(e)}")
                     sheets_data[sheet_name] = {
@@ -230,15 +285,16 @@ class MultiSheetWorkflow(BaseWorkflow):
             # Format multi-sheet output
             multi_sheet_result = formatter.format_multi_sheet_output(sheets_data)
             
-            # Write output
-            if self.config.output_file:
+            # Write output with validated parameters
+            output_file = self.get_validated_value("output_file")
+            if output_file:
                 self.reporter.update(total_steps, "Writing output")
-                writer.write_json(multi_sheet_result, self.config.output_file)
+                writer.write_json(multi_sheet_result, output_file)
             
             # Finish progress reporting
             self.reporter.finish("Processing complete")
             
-            # Return result
+            # Return result with validated execution metadata
             success_count = sum(
                 1 for data in sheets_data.values() 
                 if data.get("status") != "error"
@@ -246,16 +302,14 @@ class MultiSheetWorkflow(BaseWorkflow):
             
             return {
                 "status": "success",
-                "input_file": self.config.input_file,
-                "output_file": self.config.output_file,
+                "input_file": input_file,
+                "output_file": output_file,
                 "total_sheets": len(sheet_names),
                 "processed_sheets": len(sheets_data),
                 "success_count": success_count,
                 "failure_count": len(sheets_data) - success_count,
                 "sheet_names": list(sheets_data.keys()),
-                "strategy_used": self.strategy_factory.determine_optimal_strategy(
-                    self.config.input_file
-                ).get_strategy_name()
+                "strategy_used": self.strategy_factory.determine_optimal_strategy(input_file).get_strategy_name()
             }
         finally:
             # Ensure workbook is closed
@@ -274,8 +328,16 @@ class MultiSheetWorkflow(BaseWorkflow):
         # Create components
         structure_analyzer = StructureAnalyzer()
         data_extractor = DataExtractor()
-        formatter = OutputFormatter(include_structure_metadata=False)
+        formatter = OutputFormatter(include_structure_metadata=self.get_validated_value("include_structure_metadata", False))
         writer = OutputWriter()
+        
+        # Get validated input and configuration values
+        input_file = self.get_validated_value("input_file")
+        output_file = self.get_validated_value("output_file")
+        streaming_chunk_size = self.get_validated_value("streaming_chunk_size", 500)
+        streaming_temp_dir = self.get_validated_value("streaming_temp_dir", "data/temp")
+        memory_threshold = self.get_validated_value("memory_threshold", 0.75)
+        checkpoint_interval = self.get_validated_value("checkpoint_interval", 10)
         
         # Variables for tracking processing state
         checkpoint_id = None
@@ -285,19 +347,21 @@ class MultiSheetWorkflow(BaseWorkflow):
         sheet_status = {}
         temp_files = {}
         
-        # Check for resumption from checkpoint
+        # Check for resumption from checkpoint with validation
         resume_state = None
-        if self.config.resume_from_checkpoint and self.checkpoint_manager:
+        resume_from_checkpoint = self.get_validated_value("resume_from_checkpoint", None)
+        
+        if resume_from_checkpoint and self.checkpoint_manager:
             try:
                 checkpoint_data = self.checkpoint_manager.get_checkpoint(
-                    self.config.resume_from_checkpoint
+                    resume_from_checkpoint
                 )
                 
                 # Validate the checkpoint is for this file
-                if str(checkpoint_data.get("file_path")) != str(self.config.input_file):
+                if str(checkpoint_data.get("file_path")) != str(input_file):
                     raise CheckpointResumptionError(
                         f"Checkpoint is for a different file: {checkpoint_data.get('file_path')}",
-                        checkpoint_id=self.config.resume_from_checkpoint
+                        checkpoint_id=resume_from_checkpoint
                     )
                 
                 # Get state from checkpoint
@@ -339,6 +403,10 @@ class MultiSheetWorkflow(BaseWorkflow):
                                 "message": "Sheet was processed but temp file not found"
                             }
                 
+            except ValidationError as e:
+                # Handle Pydantic validation errors in checkpoint data
+                logger.error(f"Validation error in checkpoint data: {str(e)}")
+                logger.info("Starting fresh processing")
             except Exception as e:
                 logger.error(f"Failed to resume from checkpoint: {str(e)}")
                 logger.info("Starting fresh processing")
@@ -346,19 +414,19 @@ class MultiSheetWorkflow(BaseWorkflow):
         # Create a new checkpoint ID if needed
         if not checkpoint_id and self.checkpoint_manager:
             checkpoint_id = self.checkpoint_manager.generate_checkpoint_id(
-                self.config.input_file
+                input_file
             )
             logger.info(f"Created new checkpoint ID: {checkpoint_id}")
         
         # Create reader using strategy factory
-        reader = self.strategy_factory.create_reader(self.config.input_file)
+        reader = self.strategy_factory.create_reader(input_file)
         
         # Open workbook
         reader.open_workbook()
         
         try:
-            # Determine which sheets to process
-            sheet_names = self.config.sheet_names
+            # Determine which sheets to process with validation
+            sheet_names = self.get_validated_value("sheet_names", [])
             if not sheet_names:
                 # Process all sheets if none specified
                 sheet_names = reader.get_sheet_names()
@@ -366,9 +434,9 @@ class MultiSheetWorkflow(BaseWorkflow):
             logger.info(f"Processing sheets: {', '.join(sheet_names)}")
             
             # Start progress reporting
-            self.reporter.start(100, f"Streaming processing of {self.config.input_file}")
+            self.reporter.start(100, f"Streaming processing of {input_file}")
             
-            # Process each sheet
+            # Process each sheet with validation
             sheets_data = {}
             for i, sheet_name in enumerate(sheet_names):
                 # Skip sheets that were already processed in a previous run
@@ -422,12 +490,15 @@ class MultiSheetWorkflow(BaseWorkflow):
                         sheet_name
                     )
                     
-                    # Detect metadata and header
+                    # Detect metadata and header with validated parameters
+                    metadata_max_rows = self.get_validated_value("metadata_max_rows", 6)
+                    header_threshold = self.get_validated_value("header_detection_threshold", 3)
+                    
                     detection_result = structure_analyzer.detect_metadata_and_header(
                         sheet_accessor,
                         sheet_name=sheet_name,
-                        max_metadata_rows=self.config.metadata_max_rows,
-                        header_threshold=self.config.header_detection_threshold
+                        max_metadata_rows=metadata_max_rows,
+                        header_threshold=header_threshold
                     )
                     
                     # Calculate total rows estimate for progress reporting
@@ -436,11 +507,11 @@ class MultiSheetWorkflow(BaseWorkflow):
                     total_rows_estimate = max(0, data_end_row - detection_result.data_start_row)
                     
                     # Create temporary output file for this sheet
+                    os.makedirs(streaming_temp_dir, exist_ok=True)
                     sheet_temp_file = os.path.join(
-                        self.config.streaming_temp_dir,
-                        f"{os.path.basename(self.config.input_file)}_{sheet_name}.json"
+                        streaming_temp_dir,
+                        f"{os.path.basename(input_file)}_{sheet_name}.json"
                     )
-                    os.makedirs(os.path.dirname(sheet_temp_file), exist_ok=True)
                     temp_files[sheet_name] = sheet_temp_file
                     
                     # Format and write initial metadata structure for this sheet
@@ -451,16 +522,18 @@ class MultiSheetWorkflow(BaseWorkflow):
                     )
                     writer.initialize_streaming_file(metadata_structure, sheet_temp_file)
                     
-                    # Process data in chunks
+                    # Process data in chunks with validated parameters
+                    include_empty = self.get_validated_value("include_empty_cells", False)
+                    
                     sheet_rows_processed = 0
                     for chunk_index, (chunk_data, is_final_chunk) in enumerate(
                         data_extractor.extract_data_streaming(
                             sheet_accessor,
                             sheet_structure.merge_map,
                             detection_result.data_start_row,
-                            chunk_size=self.config.streaming_chunk_size,
-                            include_empty=self.config.include_empty_cells,
-                            memory_threshold=self.config.memory_threshold
+                            chunk_size=streaming_chunk_size,
+                            include_empty=include_empty,
+                            memory_threshold=memory_threshold
                         )
                     ):
                         # Skip chunks already processed during resumption
@@ -496,18 +569,18 @@ class MultiSheetWorkflow(BaseWorkflow):
                         )
                         
                         # Create checkpoint if needed
-                        if self.checkpoint_manager and (chunk_index + 1) % self.config.checkpoint_interval == 0:
+                        if self.checkpoint_manager and (chunk_index + 1) % checkpoint_interval == 0:
                             # Update sheet status
                             sheet_status[sheet_name] = is_final_chunk
                             
                             # Create checkpoint
                             self.checkpoint_manager.create_checkpoint(
                                 checkpoint_id=checkpoint_id,
-                                file_path=self.config.input_file,
+                                file_path=input_file,
                                 sheet_name=sheet_name,
                                 current_chunk=chunk_index,
                                 rows_processed=rows_processed,
-                                output_file=self.config.output_file,
+                                output_file=output_file,
                                 sheet_completion_status=sheet_status,
                                 temp_files=temp_files,
                                 current_sheet_index=current_sheet_index
@@ -535,6 +608,14 @@ class MultiSheetWorkflow(BaseWorkflow):
                         f"{sheet_rows_processed} records"
                     )
                     
+                except ValidationError as e:
+                    # Handle Pydantic validation errors
+                    logger.error(f"Validation error in sheet '{sheet_name}': {str(e)}")
+                    sheets_data[sheet_name] = {
+                        "status": "error",
+                        "error": str(e),
+                        "error_type": "ValidationError"
+                    }
                 except Exception as e:
                     logger.error(f"Failed to process sheet '{sheet_name}': {str(e)}")
                     sheets_data[sheet_name] = {
@@ -547,11 +628,11 @@ class MultiSheetWorkflow(BaseWorkflow):
                 if self.checkpoint_manager:
                     self.checkpoint_manager.create_checkpoint(
                         checkpoint_id=checkpoint_id,
-                        file_path=self.config.input_file,
+                        file_path=input_file,
                         sheet_name=sheet_name,
                         current_chunk=current_chunk,
                         rows_processed=rows_processed,
-                        output_file=self.config.output_file,
+                        output_file=output_file,
                         sheet_completion_status=sheet_status,
                         temp_files=temp_files,
                         current_sheet_index=current_sheet_index + 1  # Move to next sheet
@@ -588,6 +669,33 @@ class MultiSheetWorkflow(BaseWorkflow):
                     # Try using the formatter
                     logger.info(f"Using formatter to create multi-sheet output")
                     multi_sheet_result = formatter.format_multi_sheet_output(formatted_sheets_data)
+                except ValidationError as e:
+                    # Handle Pydantic validation errors in formatting
+                    logger.warning(f"Validation error in formatter, creating manual output: {str(e)}")
+                    # Create a simpler structure manually if formatter fails
+                    multi_sheet_result = {
+                        "sheets": {}
+                    }
+                    
+                    for sheet_name, sheet_data in formatted_sheets_data.items():
+                        if isinstance(sheet_data, dict) and "data" in sheet_data:
+                            # Include the sheet data
+                            multi_sheet_result["sheets"][sheet_name] = {
+                                "metadata": sheet_data.get("metadata", {}),
+                                "data": sheet_data.get("data", []),
+                                "record_count": len(sheet_data.get("data", []))
+                            }
+                        elif isinstance(sheet_data, dict) and "status" in sheet_data:
+                            # Include error or skipped sheet
+                            multi_sheet_result["sheets"][sheet_name] = sheet_data
+                    
+                    # Add summary
+                    multi_sheet_result["sheet_count"] = len(formatted_sheets_data)
+                    multi_sheet_result["total_records"] = sum(
+                        len(sheet_data.get("data", [])) 
+                        for sheet_name, sheet_data in formatted_sheets_data.items()
+                        if isinstance(sheet_data, dict) and "data" in sheet_data
+                    )
                 except Exception as e:
                     logger.warning(f"Formatter failed, creating manual multi-sheet output: {str(e)}")
                     # Create a simpler structure manually if formatter fails
@@ -622,20 +730,20 @@ class MultiSheetWorkflow(BaseWorkflow):
                     step="format_multi_sheet_output"
                 ) from e
             
-            # Write output
-            if self.config.output_file:
+            # Write output with validation
+            if output_file:
                 self.reporter.update(98, "Writing final output")
-                writer.write_json(multi_sheet_result, self.config.output_file)
+                writer.write_json(multi_sheet_result, output_file)
             
             # Create final checkpoint
             if self.checkpoint_manager:
                 self.checkpoint_manager.create_checkpoint(
                     checkpoint_id=checkpoint_id,
-                    file_path=self.config.input_file,
+                    file_path=input_file,
                     sheet_name="",  # All sheets complete
                     current_chunk=0,
                     rows_processed=rows_processed,
-                    output_file=self.config.output_file,
+                    output_file=output_file,
                     sheet_completion_status=sheet_status,
                     temp_files=temp_files,
                     current_sheet_index=len(sheet_names)  # All sheets processed
@@ -644,7 +752,7 @@ class MultiSheetWorkflow(BaseWorkflow):
             # Finish progress reporting
             self.reporter.finish("Multi-sheet streaming processing complete")
             
-            # Return result
+            # Return result with validated execution metadata
             success_count = sum(
                 1 for data in sheets_data.values() 
                 if data.get("status") not in ["error"]
@@ -652,8 +760,8 @@ class MultiSheetWorkflow(BaseWorkflow):
             
             return {
                 "status": "success",
-                "input_file": self.config.input_file,
-                "output_file": self.config.output_file,
+                "input_file": input_file,
+                "output_file": output_file,
                 "total_sheets": len(sheet_names),
                 "processed_sheets": len(sheets_data),
                 "success_count": success_count,
@@ -663,7 +771,7 @@ class MultiSheetWorkflow(BaseWorkflow):
                 "total_rows_processed": rows_processed,
                 "checkpoint_id": checkpoint_id,
                 "strategy_used": self.strategy_factory.determine_optimal_strategy(
-                    self.config.input_file
+                    input_file
                 ).get_strategy_name()
             }
             
@@ -676,24 +784,30 @@ def process_multi_sheet(
     input_file: str,
     output_file: Optional[str] = None,
     sheet_names: Optional[List[str]] = None,
-    config: Optional[ExcelProcessorConfig] = None,
+    config: Optional[Any] = None,
     **kwargs: Any
 ) -> Dict[str, Any]:
     """
-    Process multiple sheets in an Excel file.
+    Process multiple sheets in an Excel file with validation support.
     
     Args:
         input_file: Path to the Excel file
         output_file: Path to the output JSON file
         sheet_names: List of sheet names to process (None for all sheets)
-        config: Configuration for processing
+        config: Configuration object or dictionary
         **kwargs: Additional configuration parameters
         
     Returns:
         Dictionary with processing results
     """
-    # Create or update configuration
-    if config is None:
+    # Support for legacy API with dict-based config
+    if isinstance(config, dict):
+        from config import ExcelProcessorConfig
+        # Convert dict to Pydantic config
+        config = ExcelProcessorConfig.from_dict(config)
+    elif config is None:
+        from config import ExcelProcessorConfig
+        # Create default config
         config = ExcelProcessorConfig(
             input_file=input_file,
             output_file=output_file,
