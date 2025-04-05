@@ -1,0 +1,23 @@
+{
+  "input_dir": "data/input",
+  "output_dir": "data/output/batch_streaming",
+  "include_statistics": true,
+  "use_subfolder": true,
+  "streaming": {
+    "streaming_mode": true,
+    "streaming_chunk_size": 500,
+    "memory_threshold": 0.8
+  },
+  "checkpointing": {
+    "use_checkpoints": true,
+    "checkpoint_interval": 5
+  },
+  "batch": {
+    "parallel_processing": true,
+    "max_workers": 4,
+    "file_pattern": "*.xlsx",
+    "prefer_multi_sheet_mode": true
+  },
+  "statistics_depth": "standard",
+  "log_level": "info"
+}

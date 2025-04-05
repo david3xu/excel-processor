@@ -101,6 +101,9 @@ class ExcelProcessorConfig(BaseModel):
     include_empty_cells: bool = Field(False, description="Whether to include empty cells in output")
     include_headers: bool = Field(True, description="Whether to include headers in output")
     include_raw_grid: bool = Field(False, description="Whether to include raw Excel grid in output")
+    include_statistics: bool = Field(False, description="Whether to generate statistics for Excel files")
+    statistics_depth: str = Field("standard", description="Depth of statistics analysis (basic, standard, advanced)")
+    use_subfolder: bool = Field(False, description="Whether to use separate subfolders for output and statistics")
     multi_level_header_detection: bool = Field(True, description="Whether to detect multi-level headers")
     chunk_size: int = Field(1000, ge=100, description="Number of rows to process in a chunk")
     
@@ -126,6 +129,14 @@ class ExcelProcessorConfig(BaseModel):
         valid_log_levels = {"debug", "info", "warning", "error", "critical"}
         if v.lower() not in valid_log_levels:
             raise ValueError(f"log_level must be one of {valid_log_levels}")
+        return v.lower()
+    
+    @validator("statistics_depth")
+    def validate_statistics_depth(cls, v):
+        """Validate the statistics depth."""
+        valid_depths = {"basic", "standard", "advanced"}
+        if v.lower() not in valid_depths:
+            raise ValueError(f"statistics_depth must be one of {valid_depths}")
         return v.lower()
     
     @model_validator(mode='after')
@@ -254,6 +265,8 @@ class ExcelProcessorConfig(BaseModel):
                 "cache_dir": ("batch_params", "cache_dir"),
                 "parallel_processing": ("batch_params", "parallel_processing"),
                 "max_workers": ("batch_params", "max_workers"),
+                "file_pattern": ("batch_params", "file_pattern"),
+                "prefer_multi_sheet_mode": ("batch_params", "prefer_multi_sheet_mode")
             }
             
             # Extract direct and nested parameters
@@ -381,8 +394,7 @@ def get_config(
     # Update from provided kwargs
     config = ExcelProcessorConfig.from_dict({**config.to_dict(), **kwargs})
     
-    # Validate the configuration
-    config.validate()
+    # No need to explicitly call validate - Pydantic handles validation during construction
     
     return config
 

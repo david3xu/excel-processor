@@ -16,6 +16,9 @@ from output.formatter import OutputFormatter
 from utils.exceptions import WorkflowConfigurationError, WorkflowError
 from .base_workflow import BaseWorkflow, with_error_handling
 
+# Import the statistics collector
+from excel_statistics import StatisticsCollector
+
 logger = logging.getLogger(__name__)
 
 
@@ -69,6 +72,49 @@ class MultiSheetWorkflow(BaseWorkflow):
         # Additional validation specific to multi-sheet workflows
         # No further validation needed beyond parent class validation
     
+    def _get_output_path(self, base_path: Path, subfolder: str) -> Path:
+        """
+        Get output path with subfolder if enabled.
+        
+        Args:
+            base_path: Base output path
+            subfolder: Subfolder name to use
+            
+        Returns:
+            Path object with subfolder if use_subfolder is enabled
+        """
+        use_subfolder = self.get_validated_value('use_subfolder', False)
+        
+        if not use_subfolder:
+            return base_path
+            
+        # Get the directory and filename from the base path
+        output_dir = base_path.parent
+        filename = base_path.name
+        
+        # Create the subfolder path
+        subfolder_path = output_dir / subfolder
+        os.makedirs(subfolder_path, exist_ok=True)
+        
+        # Return the new path with subfolder
+        return subfolder_path / filename
+    
+    def _save_statistics(self, statistics: Any, output_path: Path) -> None:
+        """
+        Save statistics to a file.
+        
+        Args:
+            statistics: Statistics data to save
+            output_path: Path to save the statistics
+        """
+        from excel_statistics import save_statistics_to_file
+        
+        # Get the output path with subfolder if enabled
+        final_output_path = self._get_output_path(output_path, "statistics")
+        
+        logger.info(f"Saving statistics to {final_output_path}")
+        save_statistics_to_file(statistics, str(final_output_path))
+    
     @with_error_handling
     def process(self) -> Any:
         """
@@ -97,13 +143,29 @@ class MultiSheetWorkflow(BaseWorkflow):
             sheet_names=sheet_names if sheet_names else None
         )
         
+        # Generate statistics if requested
+        if self.get_validated_value('include_statistics', False):
+            stats_depth = self.get_validated_value('statistics_depth', 'standard')
+            logger.info(f"Generating {stats_depth} statistics for {input_path}")
+            
+            # Create statistics collector and collect statistics
+            stats_collector = StatisticsCollector(depth=stats_depth)
+            statistics_data = stats_collector.collect_statistics(workbook_data)
+            
+            # Save statistics to file
+            stats_output_path = output_path.with_suffix('.stats.json')
+            self._save_statistics(statistics_data.to_dict(), stats_output_path)
+        
         # Format output
         logger.info(f"Formatting output as {self.config['output_format']}")
         output_data = self.format_output(workbook_data)
         
+        # Get the output path with subfolder if enabled
+        final_output_path = self._get_output_path(output_path, "processed")
+        
         # Save output
-        logger.info(f"Saving output to {output_path}")
-        self.save_output(output_data, output_path)
+        logger.info(f"Saving output to {final_output_path}")
+        self.save_output(output_data, final_output_path)
         
         # Return formatted data
         return output_data

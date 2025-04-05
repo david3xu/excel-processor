@@ -1,0 +1,811 @@
+{
+  "statistics_id": "stats_7705db2a56_1743847650",
+  "timestamp": "2025-04-05T18:07:30.079116",
+  "workbook": {
+    "file_path": "data/input/complex_headers_test.xlsx",
+    "file_size_bytes": 8526,
+    "last_modified": "2025-04-05T18:04:40.960758",
+    "sheet_count": 4,
+    "sheets": {
+      "Multi-level Headers": {
+        "name": "Multi-level Headers",
+        "row_count": 12,
+        "column_count": 8,
+        "populated_cells": 56,
+        "data_density": 0.5833333333333334,
+        "merged_cells_count": 0,
+        "data_types": {
+          "string": 18,
+          "datetime": 1,
+          "integer": 17,
+          "float": 20
+        },
+        "columns": {
+          "A": {
+            "index": "A",
+            "name": "Plant Operations Data Report",
+            "count": 10,
+            "missing_count": 1,
+            "type_distribution": {
+              "string": 9,
+              "null": 1
+            },
+            "unique_values_count": 9,
+            "cardinality_ratio": 1.0,
+            "top_values": [
+              "Plant Operations Data Report",
+              "Report Date:",
+              "Equipment ID",
+              "EQ-001",
+              "EQ-002"
+            ],
+            "min_value": null,
+            "max_value": null,
+            "mean_value": null,
+            "median_value": null,
+            "outliers": null,
+            "format_consistency": null
+          },
+          "B": {
+            "index": "B",
+            "name": null,
+            "count": 10,
+            "missing_count": 2,
+            "type_distribution": {
+              "null": 2,
+              "datetime": 1,
+              "string": 2,
+              "integer": 5
+            },
+            "unique_values_count": 8,
+            "cardinality_ratio": 1.0,
+            "top_values": [
+              "2025-04-05T00:00:00",
+              "Production Metrics",
+              "Daily Output",
+              547,
+              423
+            ],
+            "min_value": 380,
+            "max_value": 612,
+            "mean_value": null,
+            "median_value": null,
+            "outliers": null,
+            "format_consistency": null
+          },
+          "C": {
+            "index": "C",
+            "name": null,
+            "count": 10,
+            "missing_count": 5,
+            "type_distribution": {
+              "null": 5,
+              "integer": 5
+            },
+            "unique_values_count": 5,
+            "cardinality_ratio": 1.0,
+            "top_values": [
+              2735,
+              2115,
+              3060,
+              1900,
+              2650
+            ],
+            "min_value": 1900,
+            "max_value": 3060,
+            "mean_value": null,
+            "median_value": null,
+            "outliers": null,
+            "format_consistency": null
+          },
+          "D": {
+            "index": "D",
+            "name": null,
+            "count": 10,
+            "missing_count": 4,
+            "type_distribution": {
+              "null": 4,
+              "string": 1,
+              "float": 5
+            },
+            "unique_values_count": 6,
+            "cardinality_ratio": 1.0,
+            "top_values": [
+              "Efficiency",
+              92.5,
+              88.7,
+              95.2,
+              86.3
+            ],
+            "min_value": 86.3,
+            "max_value": 95.2,
+            "mean_value": null,
+            "median_value": null,
+            "outliers": null,
+            "format_consistency": null
+          },
+          "E": {
+            "index": "E",
+            "name": null,
+            "count": 10,
+            "missing_count": 3,
+            "type_distribution": {
+              "null": 3,
+              "string": 2,
+              "integer": 5
+            },
+            "unique_values_count": 7,
+            "cardinality_ratio": 1.0,
+            "top_values": [
+              "Quality Metrics",
+              "Defect Rate",
+              350,
+              420,
+              175
+            ],
+            "min_value": 175,
+            "max_value": 510,
+            "mean_value": null,
+            "median_value": null,
+            "outliers": null,
+            "format_consistency": null
+          },
+          "F": {
+            "index": "F",
+            "name": null,
+            "count": 10,
+            "missing_count": 4,
+            "type_distribution": {
+              "null": 4,
+              "string": 1,
+              "float": 4,
+              "integer": 1
+            },
+            "unique_values_count": 6,
+            "cardinality_ratio": 1.0,
+            "top_values": [
+              "Quality Score",
+              4.2,
+              3.8,
+              4.7,
+              3.3
+            ],
+            "min_value": 3.3,
+            "max_value": 4.7,
+            "mean_value": null,
+            "median_value": null,
+            "outliers": null,
+            "format_consistency": null
+          },
+          "G": {
+            "index": "G",
+            "name": null,
+            "count": 10,
+            "missing_count": 2,
+            "type_distribution": {
+              "null": 2,
+              "string": 2,
+              "float": 6
+            },
+            "unique_values_count": 8,
+            "cardinality_ratio": 1.0,
+            "top_values": [
+              "Maintenance",
+              "Downtime",
+              3.5,
+              5.2,
+              1.8
+            ],
+            "min_value": 1.8,
+            "max_value": 8.7,
+            "mean_value": null,
+            "median_value": null,
+            "outliers": null,
+            "format_consistency": null
+          },
+          "H": {
+            "index": "H",
+            "name": null,
+            "count": 10,
+            "missing_count": 3,
+            "type_distribution": {
+              "null": 3,
+              "string": 1,
+              "float": 5,
+              "integer": 1
+            },
+            "unique_values_count": 7,
+            "cardinality_ratio": 1.0,
+            "top_values": [
+              "Maintenance Cost",
+              1250.75,
+              1875.5,
+              920.25,
+              2340.8
+            ],
+            "min_value": 920.25,
+            "max_value": 2340.8,
+            "mean_value": null,
+            "median_value": null,
+            "outliers": null,
+            "format_consistency": null
+          }
+        },
+        "header_row_position": 1
+      },
+      "Mixed Data Types": {
+        "name": "Mixed Data Types",
+        "row_count": 6,
+        "column_count": 7,
+        "populated_cells": 28,
+        "data_density": 0.6666666666666666,
+        "merged_cells_count": 0,
+        "data_types": {
+          "string": 8,
+          "integer": 4,
+          "datetime": 4,
+          "boolean": 4,
+          "float": 8
+        },
+        "columns": {
+          "A": {
+            "index": "A",
+            "name": "Mixed Data Types Example",
+            "count": 5,
+            "missing_count": 0,
+            "type_distribution": {
+              "string": 5
+            },
+            "unique_values_count": 5,
+            "cardinality_ratio": 1.0,
+            "top_values": [
+              "Mixed Data Types Example",
+              "Sample 1",
+              "Sample 2",
+              "Sample 3",
+              "Sample 4"
+            ],
+            "min_value": null,
+            "max_value": null,
+            "mean_value": null,
+            "median_value": null,
+            "outliers": null,
+            "format_consistency": null
+          },
+          "B": {
+            "index": "B",
+            "name": null,
+            "count": 5,
+            "missing_count": 1,
+            "type_distribution": {
+              "null": 1,
+              "integer": 4
+            },
+            "unique_values_count": 4,
+            "cardinality_ratio": 1.0,
+            "top_values": [
+              42,
+              18,
+              93,
+              27
+            ],
+            "min_value": 18,
+            "max_value": 93,
+            "mean_value": null,
+            "median_value": null,
+            "outliers": null,
+            "format_consistency": null
+          },
+          "C": {
+            "index": "C",
+            "name": null,
+            "count": 5,
+            "missing_count": 1,
+            "type_distribution": {
+              "null": 1,
+              "datetime": 4
+            },
+            "unique_values_count": 4,
+            "cardinality_ratio": 1.0,
+            "top_values": [
+              "2024-01-15T00:00:00",
+              "2024-02-20T00:00:00",
+              "2024-03-10T00:00:00",
+              "2024-04-05T00:00:00"
+            ],
+            "min_value": null,
+            "max_value": null,
+            "mean_value": null,
+            "median_value": null,
+            "outliers": null,
+            "format_consistency": null
+          },
+          "D": {
+            "index": "D",
+            "name": null,
+            "count": 5,
+            "missing_count": 1,
+            "type_distribution": {
+              "null": 1,
+              "boolean": 4
+            },
+            "unique_values_count": 2,
+            "cardinality_ratio": 0.5,
+            "top_values": [
+              true,
+              false
+            ],
+            "min_value": false,
+            "max_value": true,
+            "mean_value": null,
+            "median_value": null,
+            "outliers": null,
+            "format_consistency": null
+          },
+          "E": {
+            "index": "E",
+            "name": null,
+            "count": 5,
+            "missing_count": 1,
+            "type_distribution": {
+              "null": 1,
+              "float": 4
+            },
+            "unique_values_count": 4,
+            "cardinality_ratio": 1.0,
+            "top_values": [
+              123.45,
+              67.89,
+              456.78,
+              234.56
+            ],
+            "min_value": 67.89,
+            "max_value": 456.78,
+            "mean_value": null,
+            "median_value": null,
+            "outliers": null,
+            "format_consistency": null
+          },
+          "F": {
+            "index": "F",
+            "name": null,
+            "count": 5,
+            "missing_count": 1,
+            "type_distribution": {
+              "null": 1,
+              "float": 4
+            },
+            "unique_values_count": 4,
+            "cardinality_ratio": 1.0,
+            "top_values": [
+              0.75,
+              0.3,
+              0.15,
+              0.5
+            ],
+            "min_value": 0.15,
+            "max_value": 0.75,
+            "mean_value": null,
+            "median_value": null,
+            "outliers": null,
+            "format_consistency": null
+          },
+          "G": {
+            "index": "G",
+            "name": null,
+            "count": 5,
+            "missing_count": 2,
+            "type_distribution": {
+              "null": 2,
+              "string": 3
+            },
+            "unique_values_count": 3,
+            "cardinality_ratio": 1.0,
+            "top_values": [
+              "Value",
+              "Test",
+              "Data"
+            ],
+            "min_value": null,
+            "max_value": null,
+            "mean_value": null,
+            "median_value": null,
+            "outliers": null,
+            "format_consistency": null
+          }
+        },
+        "header_row_position": 1
+      },
+      "Irregular Headers": {
+        "name": "Irregular Headers",
+        "row_count": 7,
+        "column_count": 7,
+        "populated_cells": 39,
+        "data_density": 0.7959183673469388,
+        "merged_cells_count": 0,
+        "data_types": {
+          "string": 15,
+          "integer": 24
+        },
+        "columns": {
+          "A": {
+            "index": "A",
+            "name": null,
+            "count": 6,
+            "missing_count": 2,
+            "type_distribution": {
+              "null": 2,
+              "string": 4
+            },
+            "unique_values_count": 4,
+            "cardinality_ratio": 1.0,
+            "top_values": [
+              "Product A",
+              "Product B",
+              "Product C",
+              "Product D"
+            ],
+            "min_value": null,
+            "max_value": null,
+            "mean_value": null,
+            "median_value": null,
+            "outliers": null,
+            "format_consistency": null
+          },
+          "B": {
+            "index": "B",
+            "name": "USA",
+            "count": 6,
+            "missing_count": 0,
+            "type_distribution": {
+              "string": 2,
+              "integer": 4
+            },
+            "unique_values_count": 6,
+            "cardinality_ratio": 1.0,
+            "top_values": [
+              "USA",
+              "Q1",
+              100,
+              110,
+              120
+            ],
+            "min_value": 100,
+            "max_value": 130,
+            "mean_value": null,
+            "median_value": null,
+            "outliers": null,
+            "format_consistency": null
+          },
+          "C": {
+            "index": "C",
+            "name": null,
+            "count": 6,
+            "missing_count": 1,
+            "type_distribution": {
+              "null": 1,
+              "string": 1,
+              "integer": 4
+            },
+            "unique_values_count": 5,
+            "cardinality_ratio": 1.0,
+            "top_values": [
+              "Q2",
+              200,
+              215,
+              230,
+              245
+            ],
+            "min_value": 200,
+            "max_value": 245,
+            "mean_value": null,
+            "median_value": null,
+            "outliers": null,
+            "format_consistency": null
+          },
+          "D": {
+            "index": "D",
+            "name": "Canada",
+            "count": 6,
+            "missing_count": 0,
+            "type_distribution": {
+              "string": 2,
+              "integer": 4
+            },
+            "unique_values_count": 6,
+            "cardinality_ratio": 1.0,
+            "top_values": [
+              "Canada",
+              "Q1",
+              150,
+              155,
+              160
+            ],
+            "min_value": 150,
+            "max_value": 165,
+            "mean_value": null,
+            "median_value": null,
+            "outliers": null,
+            "format_consistency": null
+          },
+          "E": {
+            "index": "E",
+            "name": "UK",
+            "count": 6,
+            "missing_count": 0,
+            "type_distribution": {
+              "string": 2,
+              "integer": 4
+            },
+            "unique_values_count": 6,
+            "cardinality_ratio": 1.0,
+            "top_values": [
+              "UK",
+              "Q1",
+              180,
+              192,
+              204
+            ],
+            "min_value": 180,
+            "max_value": 216,
+            "mean_value": null,
+            "median_value": null,
+            "outliers": null,
+            "format_consistency": null
+          },
+          "F": {
+            "index": "F",
+            "name": "Germany",
+            "count": 6,
+            "missing_count": 0,
+            "type_distribution": {
+              "string": 2,
+              "integer": 4
+            },
+            "unique_values_count": 6,
+            "cardinality_ratio": 1.0,
+            "top_values": [
+              "Germany",
+              "Q1",
+              160,
+              168,
+              176
+            ],
+            "min_value": 160,
+            "max_value": 184,
+            "mean_value": null,
+            "median_value": null,
+            "outliers": null,
+            "format_consistency": null
+          },
+          "G": {
+            "index": "G",
+            "name": "France",
+            "count": 6,
+            "missing_count": 0,
+            "type_distribution": {
+              "string": 2,
+              "integer": 4
+            },
+            "unique_values_count": 6,
+            "cardinality_ratio": 1.0,
+            "top_values": [
+              "France",
+              "Q1",
+              140,
+              147,
+              154
+            ],
+            "min_value": 140,
+            "max_value": 161,
+            "mean_value": null,
+            "median_value": null,
+            "outliers": null,
+            "format_consistency": null
+          }
+        },
+        "header_row_position": 2
+      },
+      "Sparse Data": {
+        "name": "Sparse Data",
+        "row_count": 7,
+        "column_count": 7,
+        "populated_cells": 36,
+        "data_density": 0.7346938775510204,
+        "merged_cells_count": 0,
+        "data_types": {
+          "string": 24,
+          "integer": 12
+        },
+        "columns": {
+          "A": {
+            "index": "A",
+            "name": "Metric",
+            "count": 6,
+            "missing_count": 0,
+            "type_distribution": {
+              "string": 6
+            },
+            "unique_values_count": 6,
+            "cardinality_ratio": 1.0,
+            "top_values": [
+              "Metric",
+              "Revenue",
+              "Costs",
+              "Profit",
+              "Units Sold"
+            ],
+            "min_value": null,
+            "max_value": null,
+            "mean_value": null,
+            "median_value": null,
+            "outliers": null,
+            "format_consistency": null
+          },
+          "B": {
+            "index": "B",
+            "name": "Value",
+            "count": 6,
+            "missing_count": 1,
+            "type_distribution": {
+              "string": 1,
+              "integer": 4,
+              "null": 1
+            },
+            "unique_values_count": 5,
+            "cardinality_ratio": 1.0,
+            "top_values": [
+              "Value",
+              12500,
+              8200,
+              4300,
+              120
+            ],
+            "min_value": 120,
+            "max_value": 12500,
+            "mean_value": null,
+            "median_value": null,
+            "outliers": null,
+            "format_consistency": null
+          },
+          "C": {
+            "index": "C",
+            "name": "Change",
+            "count": 6,
+            "missing_count": 1,
+            "type_distribution": {
+              "string": 5,
+              "null": 1
+            },
+            "unique_values_count": 5,
+            "cardinality_ratio": 1.0,
+            "top_values": [
+              "Change",
+              "+5%",
+              "+3%",
+              "+8%",
+              "-2%"
+            ],
+            "min_value": null,
+            "max_value": null,
+            "mean_value": null,
+            "median_value": null,
+            "outliers": null,
+            "format_consistency": null
+          },
+          "D": {
+            "index": "D",
+            "name": "Value",
+            "count": 6,
+            "missing_count": 1,
+            "type_distribution": {
+              "string": 1,
+              "integer": 4,
+              "null": 1
+            },
+            "unique_values_count": 5,
+            "cardinality_ratio": 1.0,
+            "top_values": [
+              "Value",
+              13200,
+              4700,
+              1050,
+              115
+            ],
+            "min_value": 115,
+            "max_value": 13200,
+            "mean_value": null,
+            "median_value": null,
+            "outliers": null,
+            "format_consistency": null
+          },
+          "E": {
+            "index": "E",
+            "name": "Change",
+            "count": 6,
+            "missing_count": 1,
+            "type_distribution": {
+              "string": 5,
+              "null": 1
+            },
+            "unique_values_count": 5,
+            "cardinality_ratio": 1.0,
+            "top_values": [
+              "Change",
+              "+6%",
+              "+9%",
+              "+12%",
+              "-4%"
+            ],
+            "min_value": null,
+            "max_value": null,
+            "mean_value": null,
+            "median_value": null,
+            "outliers": null,
+            "format_consistency": null
+          },
+          "F": {
+            "index": "F",
+            "name": "Value",
+            "count": 6,
+            "missing_count": 1,
+            "type_distribution": {
+              "string": 1,
+              "integer": 4,
+              "null": 1
+            },
+            "unique_values_count": 5,
+            "cardinality_ratio": 1.0,
+            "top_values": [
+              "Value",
+              14100,
+              8500,
+              1150,
+              105
+            ],
+            "min_value": 105,
+            "max_value": 14100,
+            "mean_value": null,
+            "median_value": null,
+            "outliers": null,
+            "format_consistency": null
+          },
+          "G": {
+            "index": "G",
+            "name": "Change",
+            "count": 6,
+            "missing_count": 1,
+            "type_distribution": {
+              "string": 5,
+              "null": 1
+            },
+            "unique_values_count": 5,
+            "cardinality_ratio": 1.0,
+            "top_values": [
+              "Change",
+              "+7%",
+              "+4%",
+              "+10%",
+              "-8%"
+            ],
+            "min_value": null,
+            "max_value": null,
+            "mean_value": null,
+            "median_value": null,
+            "outliers": null,
+            "format_consistency": null
+          }
+        },
+        "header_row_position": 2
+      }
+    }
+  },
+  "metadata": {
+    "version": "1.0",
+    "generated_at": "2025-04-05T18:07:30.078070",
+    "analysis_depth": "standard",
+    "additional_info": {
+      "excel_processor_version": "1.0"
+    }
+  }
+}

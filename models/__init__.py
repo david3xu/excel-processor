@@ -41,6 +41,18 @@ try:
 except ImportError:
     pass  # Checkpoint models not available
 
+# Statistics models
+try:
+    from models.statistics_models import (
+        StatisticsData,
+        WorkbookStatistics,
+        SheetStatistics,
+        ColumnStatistics,
+        StatisticsMetadata,
+    )
+except ImportError:
+    pass  # Excel statistics models not available
+
 # Enhanced Pydantic models
 from models.excel_data import (
     CellDataType,
